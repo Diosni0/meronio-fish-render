@@ -7,13 +7,20 @@
 <title>merono</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; }
   body { overflow: hidden; font-family: 'Inter', 'Segoe UI', sans-serif; background: transparent; }
 
   /* ---------- Burbuja ---------- */
+  /* fixed + longhand (sin inset): el CEF de OBS a veces no aplica inset y
+     el root se quedaba 0×0 con overflow:hidden → audio sí, burbuja no.
+     El JS ancla #tts-root a document.body para saltarse transforms de SE. */
   #tts-root {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
     pointer-events: none;
     z-index: 2147483000;
   }
@@ -182,7 +189,7 @@
 
 <script>
 /**
- * Merono TTS Widget (Render, esencial).
+ * Merono TTS Widget (Render, esencial) v1.0.1.
  * Recibe cheers de StreamElements (onEventReceived), pide el audio al
  * servidor y lo reproduce con la burbuja. Sin dedup de servidor: este
  * widget no repite lo ya visto (localStorage, 300 s, sobrevive a reloads).
@@ -221,6 +228,29 @@ const INSTANCE_ID = (() => {
     return self.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 10);
   }
 })();
+
+// SE embebe el widget en contenedores con transform/filter (rompen fixed).
+// Mover #tts-root a document.body + fixed lo ancla al viewport real de OBS.
+function anchorRootToViewport() {
+  try {
+    const root = document.getElementById('tts-root');
+    if (!root || !document.body) return;
+    if (root.parentElement !== document.body) document.body.appendChild(root);
+    const st = root.style;
+    st.position = 'fixed';
+    st.top = '0';
+    st.left = '0';
+    st.right = '0';
+    st.bottom = '0';
+    st.width = '100%';
+    st.height = '100%';
+    st.overflow = 'visible';
+    st.margin = '0';
+    st.padding = '0';
+    st.zIndex = '2147483000';
+    st.pointerEvents = 'none';
+  } catch {}
+}
 
 // ------------------------------------------------------------------
 // 1. LOG (consola + indicador)
@@ -437,6 +467,7 @@ class TTSWidgetUI {
   attachLogger(logger) { this._logger = logger; }
 
   showBubble(username, text, amount = 0) {
+    if (typeof anchorRootToViewport === 'function') anchorRootToViewport();
     this._usernameEl.textContent = username;
     this._textEl.textContent = text;
 
@@ -579,8 +610,9 @@ class TTSWidget {
 
     this._keepWarmTimer = null;
 
+    anchorRootToViewport();
     this._bindEvents();
-    this._logger.info('Widget listo (api=' + CONFIG.apiUrl + ')');
+    this._logger.info('Widget listo v1.0.1 (api=' + CONFIG.apiUrl + ')');
     this._unlockAudio();
     this._maybeSelfTest();
 

@@ -39,7 +39,7 @@ logging.basicConfig(
 logging.Formatter.converter = time.gmtime
 _log = logging.getLogger("merono-tts")
 
-API_VERSION = "1.0.0"
+API_VERSION = "1.0.1"
 
 FISH_API_KEY = os.getenv("FISH_API_KEY", "")
 FISH_VOICE_ID = os.getenv("FISH_VOICE_ID", "")
