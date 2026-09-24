@@ -37,19 +37,17 @@ class SpeechService:
         if channel.strip().lower() != self.settings.allowed_channel:
             raise SpeechError(403, "Canal no permitido")
 
-    def reserve_event(self, event_id: str, instance_id: str = "") -> None:
+    def reserve_event(self, event_id: str, instance_id: str = "") -> bool:
         if not event_id:
-            return
+            return False
         self._prune_events()
         existing = self._seen_events.get(event_id)
         if existing is not None:
-            _, owner = existing
-            if instance_id and owner == instance_id:
-                self._seen_events.move_to_end(event_id)
-                return
-            raise SpeechError(409, "Evento duplicado")
+            self._seen_events.move_to_end(event_id)
+            return False
         self._seen_events[event_id] = (time.monotonic(), instance_id)
         self._seen_events.move_to_end(event_id)
+        return True
 
     def release_event(self, event_id: str, instance_id: str = "") -> None:
         if not event_id:

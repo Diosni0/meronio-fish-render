@@ -95,8 +95,7 @@ async def speech(
     try:
         service.check_rate_limit()
         service.check_channel(payload.channel)
-        service.reserve_event(payload.event_id, x_widget_instance)
-        event_reserved = True
+        event_reserved = service.reserve_event(payload.event_id, x_widget_instance)
         text = normalize_text(payload.text, settings.max_text_length, settings.channel_emote_prefix)
         username = clean_username(payload.username)
         if not text:

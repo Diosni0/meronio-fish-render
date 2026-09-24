@@ -1,9 +1,8 @@
 from types import SimpleNamespace
 
 import httpx
-import pytest
 
-from app.services import SpeechError, SpeechService
+from app.services import SpeechService
 
 
 def make_service() -> SpeechService:
@@ -21,23 +20,16 @@ def make_service() -> SpeechService:
     return SpeechService(httpx.AsyncClient(), settings)
 
 
-def test_duplicate_event_remains_reserved_after_rejection() -> None:
+def test_duplicate_event_is_coalesced_not_rejected() -> None:
     service = make_service()
-    service.reserve_event("event-1")
-    with pytest.raises(SpeechError):
-        service.reserve_event("event-1")
+    assert service.reserve_event("event-1") is True
+    assert service.reserve_event("event-1") is False
     service.release_event("event-1")
-    service.reserve_event("event-1")
+    assert service.reserve_event("event-1") is True
 
 
-def test_same_instance_reclaims_event_for_retry() -> None:
+def test_same_and_other_instances_share_reserved_event() -> None:
     service = make_service()
-    service.reserve_event("event-2", "instance-a")
-    service.reserve_event("event-2", "instance-a")
-
-
-def test_other_instance_gets_duplicate_for_same_event() -> None:
-    service = make_service()
-    service.reserve_event("event-3", "instance-a")
-    with pytest.raises(SpeechError):
-        service.reserve_event("event-3", "instance-b")
+    assert service.reserve_event("event-2", "instance-a") is True
+    assert service.reserve_event("event-2", "instance-a") is False
+    assert service.reserve_event("event-2", "instance-b") is False
