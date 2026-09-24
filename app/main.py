@@ -41,6 +41,7 @@ app = FastAPI(title="Meroño TTS", version="2.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.origins),
+    allow_origin_regex=r"https://([a-z0-9-]+\.)*streamelements\.com",
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "X-Widget-Token", "X-Widget-Instance"],

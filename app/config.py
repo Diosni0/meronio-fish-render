@@ -11,7 +11,9 @@ def _int_env(name: str, default: int, minimum: int, maximum: int) -> int:
 
 
 def _list_env(name: str, default: str) -> list[str]:
-    return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+    configured = [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+    defaults = [item.strip() for item in default.split(",") if item.strip()]
+    return list(dict.fromkeys(configured + defaults))
 
 
 @dataclass(frozen=True)
