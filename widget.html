@@ -161,6 +161,7 @@ let eventSeen = readSeenEvents();
 let queue = [];
 let processing = false;
 let audioContext = null;
+let currentAudio = null;
 
 function unlockAudio() {
   try {
@@ -303,12 +304,16 @@ function playAudio(blob, item) {
   return new Promise(resolve => {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
+    audio.preload = "auto";
+    audio.volume = 1;
+    currentAudio = audio;
     let settled = false;
     const finish = () => {
       if (settled) return;
       settled = true;
       clearTimeout(safetyTimer);
       audio.pause();
+      if (currentAudio === audio) currentAudio = null;
       URL.revokeObjectURL(url);
       resolve();
     };
@@ -316,8 +321,11 @@ function playAudio(blob, item) {
     audio.onended = finish;
     audio.onerror = () => { log(`Audio inválido: ${item.username}`); finish(); };
     audio.onplaying = () => { bubble.dataset.state = "speaking"; log(`Reproduciendo ${item.username}`); };
-    if (audioContext) audioContext.resume().catch(() => {});
-    audio.play().then(() => { bubble.dataset.state = "speaking"; }).catch(error => { log(`Audio bloqueado: ${error.message}`); finish(); });
+    const resume = audioContext ? audioContext.resume() : Promise.resolve();
+    resume.catch(() => {}).finally(() => {
+      audio.load();
+      audio.play().then(() => { bubble.dataset.state = "speaking"; }).catch(error => { log(`Audio bloqueado: ${error.message}`); finish(); });
+    });
   });
 }
 
