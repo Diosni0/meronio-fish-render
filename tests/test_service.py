@@ -28,3 +28,16 @@ def test_duplicate_event_remains_reserved_after_rejection() -> None:
         service.reserve_event("event-1")
     service.release_event("event-1")
     service.reserve_event("event-1")
+
+
+def test_same_instance_reclaims_event_for_retry() -> None:
+    service = make_service()
+    service.reserve_event("event-2", "instance-a")
+    service.reserve_event("event-2", "instance-a")
+
+
+def test_other_instance_gets_duplicate_for_same_event() -> None:
+    service = make_service()
+    service.reserve_event("event-3", "instance-a")
+    with pytest.raises(SpeechError):
+        service.reserve_event("event-3", "instance-b")

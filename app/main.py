@@ -83,14 +83,19 @@ def ready() -> JSONResponse:
 
 
 @app.post("/api/v1/speech")
-async def speech(payload: SpeechPayload, request: Request, x_widget_token: str | None = Header(default=None)) -> Response:
+async def speech(
+    payload: SpeechPayload,
+    request: Request,
+    x_widget_token: str | None = Header(default=None),
+    x_widget_instance: str = Header(default=""),
+) -> Response:
     _authenticate(x_widget_token)
     service = _service(request)
     event_reserved = False
     try:
         service.check_rate_limit()
         service.check_channel(payload.channel)
-        service.reserve_event(payload.event_id)
+        service.reserve_event(payload.event_id, x_widget_instance)
         event_reserved = True
         text = normalize_text(payload.text, settings.max_text_length, settings.channel_emote_prefix)
         username = clean_username(payload.username)
@@ -99,11 +104,11 @@ async def speech(payload: SpeechPayload, request: Request, x_widget_token: str |
         audio, cache_status = await service.synthesize(text)
     except SpeechError as error:
         if event_reserved and payload.event_id:
-            service.release_event(payload.event_id)
+            service.release_event(payload.event_id, x_widget_instance)
         raise _payload_error(error) from error
     except Exception:
         if event_reserved and payload.event_id:
-            service.release_event(payload.event_id)
+            service.release_event(payload.event_id, x_widget_instance)
         logger.exception("Unexpected synthesis error")
         raise HTTPException(status_code=500, detail="Error interno de síntesis") from None
     return Response(

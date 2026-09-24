@@ -20,7 +20,7 @@ class SpeechService:
         self.settings = settings
         self._cache: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
         self._inflight: dict[str, asyncio.Future[bytes]] = {}
-        self._seen_events: OrderedDict[str, float] = OrderedDict()
+        self._seen_events: OrderedDict[str, tuple[float, str]] = OrderedDict()
         self._requests: deque[float] = deque()
         self._pending = 0
         self._semaphore = asyncio.Semaphore(settings.max_concurrency)
@@ -37,22 +37,33 @@ class SpeechService:
         if channel.strip().lower() != self.settings.allowed_channel:
             raise SpeechError(403, "Canal no permitido")
 
-    def reserve_event(self, event_id: str) -> None:
+    def reserve_event(self, event_id: str, instance_id: str = "") -> None:
         if not event_id:
             return
         self._prune_events()
-        if event_id in self._seen_events:
+        existing = self._seen_events.get(event_id)
+        if existing is not None:
+            _, owner = existing
+            if instance_id and owner == instance_id:
+                self._seen_events.move_to_end(event_id)
+                return
             raise SpeechError(409, "Evento duplicado")
-        self._seen_events[event_id] = time.monotonic()
+        self._seen_events[event_id] = (time.monotonic(), instance_id)
         self._seen_events.move_to_end(event_id)
 
-    def release_event(self, event_id: str) -> None:
-        if event_id:
+    def release_event(self, event_id: str, instance_id: str = "") -> None:
+        if not event_id:
+            return
+        existing = self._seen_events.get(event_id)
+        if existing is None:
+            return
+        _, owner = existing
+        if not instance_id or owner == instance_id:
             self._seen_events.pop(event_id, None)
 
     def _prune_events(self) -> None:
         cutoff = time.monotonic() - 300
-        while self._seen_events and next(iter(self._seen_events.values())) < cutoff:
+        while self._seen_events and next(iter(self._seen_events.values()))[0] < cutoff:
             self._seen_events.popitem(last=False)
 
     def _cache_key(self, text: str) -> str:

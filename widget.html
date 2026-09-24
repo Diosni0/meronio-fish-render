@@ -278,15 +278,23 @@ async function requestAudio(item) {
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
+        if (response.status === 409) {
+          const duplicate = new Error(body.detail || "Evento duplicado");
+          duplicate.code = "DUPLICATE";
+          duplicate.retryable = false;
+          throw duplicate;
+        }
         const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
         if (retryable && attempt < CONFIG.maxRetries) { await wait(CONFIG.retryBaseMs * (2 ** (attempt - 1))); continue; }
-        throw new Error(body.detail || `HTTP ${response.status}`);
+        const failure = new Error(body.detail || `HTTP ${response.status}`);
+        failure.retryable = false;
+        throw failure;
       }
       const audio = await response.blob();
       if (audio.size < 100) throw new Error("Audio vacío");
       return audio;
     } catch (error) {
-      if (attempt === CONFIG.maxRetries) throw error;
+      if ((error && error.retryable === false) || attempt === CONFIG.maxRetries) throw error;
       await wait(CONFIG.retryBaseMs * (2 ** attempt));
     } finally { clearTimeout(timeout); }
   }
@@ -326,11 +334,16 @@ async function processQueue() {
       await playAudio(audio, item);
       hideBubble();
     } catch (error) {
-      log(`Error: ${error.message}`);
-      showBubble({ ...item, text: `No se pudo reproducir: ${item.text}` }, "error");
-      await wait(2500);
-      hideBubble();
-      unmarkSeen(item.keys);
+      if (error && error.code === "DUPLICATE") {
+        log("Duplicado ignorado");
+        hideBubble();
+      } else {
+        log(`Error: ${error.message}`);
+        showBubble({ ...item, text: `No se pudo reproducir: ${item.text}` }, "error");
+        await wait(2500);
+        hideBubble();
+        unmarkSeen(item.keys);
+      }
     }
     await wait(CONFIG.gapMs);
   }
