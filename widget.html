@@ -1,710 +1,357 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<title>merono</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meroño TTS</title>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; }
-  body { overflow: hidden; font-family: 'Inter', 'Segoe UI', sans-serif; background: transparent; }
-
-  /* ---------- Burbuja ---------- */
-  /* fixed + longhand (sin inset): el CEF de OBS a veces no aplica inset y
-     el root se quedaba 0×0 con overflow:hidden → audio sí, burbuja no.
-     El JS ancla #tts-root a document.body para saltarse transforms de SE. */
-  #tts-root {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    overflow: visible;
-    pointer-events: none;
-    z-index: 2147483000;
-  }
-  .tts-bubble {
-    position: absolute;
-    bottom: 40px;
-    left: 40px;
-    display: flex;
-    align-items: stretch;
-    max-width: 600px;
-    opacity: 0;
-    transform: translateX(-30px);
-    transition: opacity .4s cubic-bezier(.16, 1, .3, 1),
-                transform .4s cubic-bezier(.16, 1, .3, 1);
-    pointer-events: none;
-    z-index: 2147483001;
-    visibility: hidden;
-  }
-  .tts-bubble.show {
-    opacity: 1;
-    transform: translateX(0);
-    visibility: visible;
-  }
-
-  /* ---------- Fotos a la izquierda ---------- */
-  .profile-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    flex-shrink: 0;
-  }
-  .profile-pic {
-    width: 140px;
-    height: 140px;
-    object-fit: cover;
-    border-radius: 20px;
-    border: 3px solid #9146ff;
-    background: #18181b;
-    display: block;
-  }
-  .profile-pic.hidden { display: none; }
-
-  /* ---------- Cuerpo ---------- */
-  .bubble-body {
-    margin-left: 22px;
-    padding: 26px 32px;
-    background: #18181b;
-    border: 2px solid #9146ff;
-    border-radius: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    min-width: 320px;
-    max-width: 600px;
-    box-shadow: 0 8px 36px rgba(145, 70, 255, 0.3);
-  }
-
-  /* ---------- Cabecera: usuario + bits ---------- */
-  .header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    padding-bottom: 14px;
-    border-bottom: 2px solid rgba(145, 70, 255, 0.3);
-  }
-  .user-name {
-    font-size: 28px;
-    font-weight: 700;
-    color: #bf94ff;
-    letter-spacing: 0.3px;
-  }
-  .bits {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 22px;
-    font-weight: 700;
-    color: #ffd24c;
-    background: rgba(255, 210, 76, 0.12);
-    padding: 6px 14px;
-    border-radius: 999px;
-  }
-  .bits.hidden { display: none; }
-
-  /* ---------- Texto TTS ---------- */
-  .tts-text {
-    font-size: 24px;
-    line-height: 1.5;
-    color: #efeff1;
-    word-wrap: break-word;
-    white-space: normal;
-    overflow-wrap: break-word;
-    hyphens: auto;
-  }
-
-  /* ---------- Onda de sonido ---------- */
-  .sound-wave {
-    display: flex;
-    gap: 5px;
-    align-items: flex-end;
-    height: 32px;
-    opacity: 0;
-    transition: opacity .3s;
-  }
-  .tts-bubble.playing .sound-wave { opacity: 1; }
-  .sound-wave .bar {
-    width: 5px;
-    background: #9146ff;
-    border-radius: 3px;
-    animation: wave .8s ease-in-out infinite;
-  }
-  .sound-wave .bar:nth-child(1) { height: 11px; animation-delay: 0s;   }
-  .sound-wave .bar:nth-child(2) { height: 25px; animation-delay: .1s;  }
-  .sound-wave .bar:nth-child(3) { height: 16px; animation-delay: .2s;  }
-  .sound-wave .bar:nth-child(4) { height: 29px; animation-delay: .15s; }
-  .sound-wave .bar:nth-child(5) { height: 18px; animation-delay: .25s; }
-  @keyframes wave {
-    0%, 100% { transform: scaleY(1);    }
-    50%      { transform: scaleY(0.35); }
-  }
-
-  #status-indicator {
-    position: fixed;
-    top: 5px;
-    right: 5px;
-    font-size: 10px;
-    color: rgba(255, 255, 255, .35);
-    font-family: monospace;
-  }
+:root {
+  color-scheme: dark;
+  --bg: #08070b;
+  --panel: rgba(12, 10, 18, .96);
+  --panel-soft: rgba(25, 18, 36, .9);
+  --purple: #8b5cf6;
+  --purple-light: #c4a7ff;
+  --purple-dark: #4c1d95;
+  --text: #f8f5ff;
+  --muted: #a79db5;
+  --gold: #ffd76a;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
+#tts-root { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2147483000; pointer-events: none; }
+.bubble {
+  position: absolute;
+  left: 34px;
+  bottom: 34px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: min(720px, calc(100vw - 68px));
+  padding: 14px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid transparent;
+  border-radius: 24px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .55), 0 0 28px rgba(139, 92, 246, .18);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(18px) scale(.97);
+  transition: opacity .32s ease, transform .32s cubic-bezier(.16, 1, .3, 1), visibility .32s;
+  overflow: hidden;
+}
+.bubble::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(120deg, #d8c4ff 0%, var(--purple) 30%, #5b21b6 55%, #e9ddff 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.bubble::after {
+  content: "";
+  position: absolute;
+  top: -70%;
+  left: -25%;
+  width: 60%;
+  height: 220%;
+  background: linear-gradient(105deg, transparent, rgba(255,255,255,.08), transparent);
+  transform: rotate(18deg);
+  pointer-events: none;
+}
+.bubble.show { opacity: 1; visibility: visible; transform: translateY(0) scale(1); }
+.avatar {
+  width: 104px;
+  height: 104px;
+  flex: 0 0 104px;
+  object-fit: cover;
+  border: 2px solid rgba(196, 167, 255, .82);
+  border-radius: 18px;
+  background: #17111f;
+  box-shadow: 0 0 18px rgba(139, 92, 246, .28);
+}
+.avatar.hidden { display: none; }
+.body { min-width: 0; max-width: 570px; padding: 4px 12px 4px 2px; }
+.header { display: flex; align-items: center; gap: 12px; min-height: 28px; }
+.username { max-width: 390px; overflow: hidden; color: var(--purple-light); font-size: 23px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.bits { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; color: var(--gold); background: rgba(255, 215, 106, .1); border: 1px solid rgba(255, 215, 106, .18); border-radius: 999px; font-size: 17px; font-weight: 750; white-space: nowrap; }
+.message { max-width: 570px; margin-top: 9px; color: var(--text); font-size: 22px; line-height: 1.35; overflow-wrap: anywhere; }
+.wave { display: flex; align-items: center; gap: 4px; height: 20px; margin-top: 10px; opacity: .35; }
+.bubble[data-state="speaking"] .wave { opacity: 1; }
+.bar { width: 4px; height: 8px; border-radius: 4px; background: linear-gradient(180deg, var(--purple-light), var(--purple)); animation: wave .75s ease-in-out infinite; }
+.bar:nth-child(1) { height: 8px; animation-delay: -.4s; }
+.bar:nth-child(2) { height: 15px; animation-delay: -.2s; }
+.bar:nth-child(3) { height: 20px; animation-delay: -.6s; }
+.bar:nth-child(4) { height: 12px; animation-delay: -.1s; }
+.bar:nth-child(5) { height: 17px; animation-delay: -.5s; }
+@keyframes wave { 0%, 100% { transform: scaleY(.45); } 50% { transform: scaleY(1.2); } }
+.bubble[data-state="error"] { border-color: rgba(255, 105, 145, .8); }
+.bubble[data-state="error"] .message { color: #ffc0d0; }
+.status { position: fixed; right: 8px; top: 6px; color: rgba(255,255,255,.32); font: 11px/1.2 monospace; text-shadow: 0 1px 2px #000; }
 </style>
 </head>
 <body>
-
 <div id="tts-root">
-<div class="tts-bubble" id="tts-container">
-  <div class="profile-stack">
-    <img class="profile-pic" id="profile-normal"
-         src="__BASE_URL__/images/profile.png" alt="Profile">
-    <img class="profile-pic hidden" id="profile-chino"
-         src="__BASE_URL__/images/profile_chino.png" alt="Profile Chino">
-  </div>
-
-  <div class="bubble-body">
-    <div class="header">
-      <div class="user-name" id="username"></div>
-      <div class="bits hidden" id="bits">
-        <span>♦</span><span id="bits-amount">0</span>
+  <section class="bubble" id="bubble" data-state="queued">
+    <img class="avatar" id="profile-normal" alt="Meroño">
+    <img class="avatar hidden" id="profile-chino" alt="Meroño chino">
+    <div class="body">
+      <div class="header">
+        <div class="username" id="username"></div>
+        <div class="bits"><span>♦</span><span id="bits">0</span></div>
+      </div>
+      <div class="message" id="message"></div>
+      <div class="wave" aria-hidden="true">
+        <i class="bar"></i><i class="bar"></i><i class="bar"></i><i class="bar"></i><i class="bar"></i>
       </div>
     </div>
-
-    <div class="tts-text" id="tts-text"></div>
-
-    <div class="sound-wave">
-      <div class="bar"></div>
-      <div class="bar"></div>
-      <div class="bar"></div>
-      <div class="bar"></div>
-      <div class="bar"></div>
-    </div>
-  </div>
+  </section>
 </div>
-</div>
-
-<div id="status-indicator">TTS Ready</div>
-
+<div class="status" id="status">Meroño TTS</div>
 <script>
-/**
- * Merono TTS Widget (Render, esencial) v1.0.1.
- * Recibe cheers de StreamElements (onEventReceived), pide el audio al
- * servidor y lo reproduce con la burbuja. Sin dedup de servidor: este
- * widget no repite lo ya visto (localStorage, 300 s, sobrevive a reloads).
- */
-
 const CONFIG = Object.freeze({
-  // El servidor sustituye __BASE_URL__ por la URL pública al servir el
-  // overlay. Si se pega el HTML a mano en SE sin pasar por el servidor,
-  // se usa el mismo origen como último recurso.
-  apiUrl: ('__BASE_URL__'.startsWith('http')
-    ? '__BASE_URL__'
-    : window.location.origin),
-
+  apiUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
+  widgetToken: "REEMPLAZA_CON_TU_WIDGET_TOKEN",
+  channel: "alimentacionchino",
+  imageBaseUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   minBits: 10,
   maxTextLength: 600,
-  displayDurationMs: 30000,
-  gapBetweenItemsMs: 500,
-
-  fetchTimeoutMs: 30000,
-  maxRetries: 3,
-  retryBaseDelayMs: 2000,
-
   keepWarmIntervalMs: 240000,
-  eventDedupTtlMs: 300000,
+  dedupTtlMs: 300000,
+  gapMs: 450,
+  maxQueue: 8,
+  fetchTimeoutMs: 90000,
+  retryBaseMs: 1000,
+  maxRetries: 3
 });
 
-const INSTANCE_ID = (() => {
+const root = document.getElementById("tts-root");
+const bubble = document.getElementById("bubble");
+const usernameEl = document.getElementById("username");
+const messageEl = document.getElementById("message");
+const bitsEl = document.getElementById("bits");
+const normalEl = document.getElementById("profile-normal");
+const chinoEl = document.getElementById("profile-chino");
+const statusEl = document.getElementById("status");
+const instanceId = (() => {
   try {
-    const key = 'merono_tts_instance';
-    const existing = sessionStorage.getItem(key);
-    if (existing) return existing;
-    const id = self.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 10);
-    sessionStorage.setItem(key, id);
-    return id;
-  } catch {
-    return self.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 10);
-  }
+    const key = "merono_tts_instance_v2";
+    const current = sessionStorage.getItem(key);
+    if (current) return current;
+    const value = self.crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
+    sessionStorage.setItem(key, value);
+    return value;
+  } catch { return Math.random().toString(36).slice(2); }
 })();
+const hanPattern = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+let liveState = false;
+let keepWarmTimer = null;
+let eventSeen = readSeenEvents();
+let queue = [];
+let processing = false;
 
-// SE embebe el widget en contenedores con transform/filter (rompen fixed).
-// Mover #tts-root a document.body + fixed lo ancla al viewport real de OBS.
-function anchorRootToViewport() {
+function readSeenEvents() {
   try {
-    const root = document.getElementById('tts-root');
-    if (!root || !document.body) return;
-    if (root.parentElement !== document.body) document.body.appendChild(root);
-    const st = root.style;
-    st.position = 'fixed';
-    st.top = '0';
-    st.left = '0';
-    st.right = '0';
-    st.bottom = '0';
-    st.width = '100%';
-    st.height = '100%';
-    st.overflow = 'visible';
-    st.margin = '0';
-    st.padding = '0';
-    st.zIndex = '2147483000';
-    st.pointerEvents = 'none';
+    const parsed = JSON.parse(localStorage.getItem("merono_tts_seen_v2") || "{}");
+    const now = Date.now();
+    return Object.fromEntries(Object.entries(parsed).filter(([, time]) => now - time < CONFIG.dedupTtlMs));
+  } catch { return {}; }
+}
+
+function saveSeenEvents() {
+  try {
+    const now = Date.now();
+    for (const [key, time] of Object.entries(eventSeen)) if (now - time >= CONFIG.dedupTtlMs) delete eventSeen[key];
+    localStorage.setItem("merono_tts_seen_v2", JSON.stringify(eventSeen));
   } catch {}
 }
 
-// ------------------------------------------------------------------
-// 1. LOG (consola + indicador)
-// ------------------------------------------------------------------
-class Logger {
-  constructor(domId = 'status-indicator') {
-    this._el = document.getElementById(domId);
-  }
-  info(msg)  { this._log('INFO', msg); }
-  warn(msg)  { this._log('WARN', msg); }
-  error(msg) { this._log('ERROR', msg); }
-  _log(level, msg) {
-    console.log(`[TTS] [${level}] ${msg}`);
-    try { if (this._el) this._el.textContent = `[${level}] ${msg}`; } catch {}
-  }
+function log(message) {
+  console.log(`[Meroño TTS] ${message}`);
+  statusEl.textContent = message;
 }
 
-// ------------------------------------------------------------------
-// 2. RED (ApiClient)
-// ------------------------------------------------------------------
-class ApiClient {
-  constructor(baseUrl, logger) {
-    this._baseUrl = baseUrl;
-    this._logger = logger;
-  }
-
-  async fetchAudio(text, username, amount, eventId = '') {
-    const endpoint = `${this._baseUrl}/streamelements/redeem`;
-
-    for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
-      let retryable = true;
-      try {
-        this._logger.info(`Synthesis attempt ${attempt}/${CONFIG.maxRetries} for ${username}`);
-
-        const body = new FormData();
-        body.append('text', text);
-        body.append('username', username);
-        body.append('amount', String(amount));
-        body.append('event_id', eventId);
-
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), CONFIG.fetchTimeoutMs);
-
-        let response;
-        try {
-          response = await fetch(endpoint, {
-            method: 'POST',
-            body,
-            headers: { 'X-Instance-Id': INSTANCE_ID },
-            signal: controller.signal,
-          });
-        } finally {
-          clearTimeout(timer);
-        }
-
-        if (response.status === 204) return null;
-
-        if (!response.ok) {
-          retryable = response.status === 408 || response.status === 429 ||
-            response.status >= 500;
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const blob = await response.blob();
-        if (!blob || blob.size < 100) throw new Error(`Audio too small: ${blob.size} bytes`);
-
-        return blob;
-      } catch (err) {
-        this._logger.warn(`Attempt ${attempt} failed: ${err.message}`);
-        if (retryable && attempt < CONFIG.maxRetries) {
-          const delay = CONFIG.retryBaseDelayMs * (2 ** (attempt - 1));
-          this._logger.info(`Retrying in ${delay / 1000}s...`);
-          await this._sleep(delay);
-        } else {
-          break;
-        }
-      }
-    }
-
-    this._logger.error(`Synthesis failed for ${username}`);
-    return null;
-  }
-
-  async pingHealth() {
-    try { await fetch(`${this._baseUrl}/health`, { method: 'GET' }); } catch {}
-  }
-
-  _sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+function containsChinese(value) {
+  return hanPattern.test(String(value || ""));
 }
 
-// ------------------------------------------------------------------
-// 3. COLA DE AUDIO (orden de llegada aunque la síntesis desordene)
-// ------------------------------------------------------------------
-class AudioQueue {
-  constructor(ui, apiClient, logger) {
-    this._ui = ui;
-    this._api = apiClient;
-    this._logger = logger;
-    this._isPlaying = false;
-    this._displaySafetyTimer = null;
-    this._seq = 0;
-    this._nextSeq = 1;
-    this._buffer = new Map();
-    this._queue = [];
-    this._currentAudio = null;
-  }
-
-  async enqueue(username, text, amount, eventId = '') {
-    const seq = ++this._seq;
-    const result = await this._api.fetchAudio(text, username, amount, eventId);
-    this._buffer.set(seq, { username, text, amount, audioBlob: result });
-    this._flushInOrder();
-    return !!result;
-  }
-
-  _flushInOrder() {
-    while (this._buffer.has(this._nextSeq)) {
-      const item = this._buffer.get(this._nextSeq);
-      this._buffer.delete(this._nextSeq);
-      this._nextSeq++;
-
-      if (!item.audioBlob) {
-        this._logger.info(`Sin audio para ${item.username} (fallo de síntesis)`);
-        continue;
-      }
-      if (!(item.audioBlob instanceof Blob)) {
-        this._logger.error(`Respuesta inesperada para ${item.username}`);
-        continue;
-      }
-
-      this._queue.push(item);
-      this._logger.info(`Enqueued: ${item.username} (${this._queue.length} pending)`);
-    }
-
-    if (!this._isPlaying && this._queue.length > 0) this._drain();
-  }
-
-  async _drain() {
-    this._isPlaying = true;
-    while (this._queue.length > 0) {
-      const item = this._queue.shift();
-      this._ui.showBubble(item.username, item.text, item.amount);
-      this._logger.info(`Playing: ${item.username}`);
-
-      await this._playBlob(item.audioBlob);
-      await this._sleep(CONFIG.gapBetweenItemsMs);
-    }
-    this._isPlaying = false;
-    this._logger.info('Queue empty – TTS Ready');
-  }
-
-  _playBlob(blob) {
-    return new Promise((resolve) => {
-      const url = URL.createObjectURL(blob);
-      // Referencia viva: en el CEF de OBS un Audio sin referencias puede
-      // recolectarse a mitad de reproducción y cortar el sonido.
-      const audio = new Audio(url);
-      this._currentAudio = audio;
-
-      let settled = false;
-
-      const finish = (errorMsg) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(this._displaySafetyTimer);
-        this._displaySafetyTimer = null;
-        try { audio.pause(); } catch {}
-        if (this._currentAudio === audio) this._currentAudio = null;
-        URL.revokeObjectURL(url);
-        this._ui.hideBubble();
-        if (errorMsg) this._logger.error(errorMsg);
-        resolve();
-      };
-
-      this._displaySafetyTimer = setTimeout(
-        () => finish('Display safety timeout'), CONFIG.displayDurationMs);
-
-      audio.onended = () => finish();
-      audio.onerror = () => {
-        const code = audio.error ? audio.error.code : '?';
-        finish(`Audio playback error (code ${code})`);
-      };
-      audio.onplaying = () => {
-        const dur = Math.round((audio.duration || 0) * 10) / 10;
-        this._logger.info(`Reproduciendo ${blob.size}B dur=${dur}s`);
-      };
-
-      const p = audio.play();
-      if (p && typeof p.then === 'function') {
-        p.then(() => this._logger.info('play() OK'))
-          .catch((err) => finish(`Playback blocked: ${err.message}`));
-      }
-    });
-  }
-
-  _sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+function fallback(username, amount) {
+  return `${username || "Anónimo"} dona ${amount || 0} bits.`;
 }
 
-// ------------------------------------------------------------------
-// 4. UI (burbuja)
-// ------------------------------------------------------------------
-class TTSWidgetUI {
-  constructor() {
-    this._container     = document.getElementById('tts-container');
-    this._usernameEl    = document.getElementById('username');
-    this._textEl        = document.getElementById('tts-text');
-    this._profileNormal = document.getElementById('profile-normal');
-    this._profileChino  = document.getElementById('profile-chino');
-    this._bitsEl        = document.getElementById('bits');
-    this._bitsAmountEl  = document.getElementById('bits-amount');
-    this._logger = null;
-  }
-
-  attachLogger(logger) { this._logger = logger; }
-
-  showBubble(username, text, amount = 0) {
-    if (typeof anchorRootToViewport === 'function') anchorRootToViewport();
-    this._usernameEl.textContent = username;
-    this._textEl.textContent = text;
-
-    if (amount > 0) {
-      this._bitsAmountEl.textContent = amount.toLocaleString();
-      this._bitsEl.classList.remove('hidden');
-    } else {
-      this._bitsEl.classList.add('hidden');
-    }
-
-    const isChinese = /^[一-鿿]/.test(text.charAt(0));
-    this._profileNormal.classList.toggle('hidden', isChinese);
-    this._profileChino.classList.toggle('hidden', !isChinese);
-
-    this._container.classList.add('show', 'playing');
-    if (this._logger) {
-      const cs = window.getComputedStyle(this._container);
-      const rect = this._container.getBoundingClientRect();
-      this._logger.info(
-        `showBubble OK user=${username} opacity=${cs.opacity} vis=${cs.visibility} ` +
-        `rect=${Math.round(rect.x)},${Math.round(rect.y)} ` +
-        `${Math.round(rect.width)}x${Math.round(rect.height)}`);
-    }
-  }
-
-  hideBubble() {
-    this._container.classList.remove('show', 'playing');
-  }
+function cleanText(value) {
+  return String(value || "").replace(/^\s*!tts\b/i, "").replace(/\bcheer\s*\d+\b/gi, "").replace(/\s+/g, " ").trim().slice(0, CONFIG.maxTextLength);
 }
 
-// ------------------------------------------------------------------
-// 5. DEDUP POR PESTAÑA (localStorage, sobrevive a reloads)
-//    Claves: se:<_id de SE> + c:usuario:bits:texto (por si SE reenvía
-//    con otro id). Cada pestaña reproduce cada cheer una sola vez.
-// ------------------------------------------------------------------
-class EventProcessor {
-  constructor(logger) {
-    this._logger = logger;
-    this._storageKey = 'merono_tts_seen_events';
-    this._seen = this._load();
-  }
+function eventKeys(event) {
+  const id = event.eventId ? `id:${event.eventId}` : `content:${event.username}:${event.amount}:${event.text}`;
+  return [id, `content:${event.username}:${event.amount}:${event.text}`];
+}
 
-  _load() {
+function isDuplicate(keys) {
+  const now = Date.now();
+  return keys.some(key => typeof eventSeen[key] === "number" && now - eventSeen[key] < CONFIG.dedupTtlMs);
+}
+
+function markSeen(keys) {
+  const now = Date.now();
+  keys.forEach(key => { eventSeen[key] = now; });
+  saveSeenEvents();
+}
+
+function unmarkSeen(keys) {
+  keys.forEach(key => { delete eventSeen[key]; });
+  saveSeenEvents();
+}
+
+function parseEvent(raw) {
+  if (!raw || (raw.type !== "cheer" && raw.type !== "bits")) return null;
+  const data = raw.data || raw;
+  const username = String(data.displayName || data.name || data.username || raw.user_name || "Anónimo").slice(0, 80);
+  const amount = Number.parseInt(data.amount || raw.amount || raw.bits || 0, 10) || 0;
+  const text = cleanText(data.message || raw.message || raw.text || "");
+  if (amount < CONFIG.minBits) return null;
+  const eventId = String(raw._id || data._id || "");
+  return { eventId, username, amount, text: text || fallback(username, amount), keys: eventKeys({ eventId, username, amount, text }) };
+}
+
+function showBubble(item, state) {
+  root.style.position = "fixed";
+  root.style.inset = "0";
+  usernameEl.textContent = item.username;
+  messageEl.textContent = item.text;
+  bitsEl.textContent = Number(item.amount || 0).toLocaleString("es-ES");
+  const chinese = containsChinese(item.text);
+  normalEl.classList.toggle("hidden", chinese);
+  chinoEl.classList.toggle("hidden", !chinese);
+  bubble.dataset.state = state;
+  bubble.classList.add("show");
+}
+
+function hideBubble() {
+  bubble.classList.remove("show");
+  bubble.dataset.state = "queued";
+}
+
+async function requestAudio(item) {
+  for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), CONFIG.fetchTimeoutMs);
     try {
-      const raw = localStorage.getItem(this._storageKey);
-      if (!raw) return {};
-      const obj = JSON.parse(raw);
-      if (!obj || typeof obj !== 'object') return {};
-      const now = Date.now();
-      const clean = {};
-      for (const [k, ts] of Object.entries(obj)) {
-        if (typeof ts === 'number' && now - ts < CONFIG.eventDedupTtlMs) {
-          clean[k] = ts;
-        }
+      const response = await fetch(`${CONFIG.apiUrl}/api/v1/speech`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Widget-Token": CONFIG.widgetToken, "X-Widget-Instance": instanceId },
+        body: JSON.stringify({ text: item.text, username: item.username, amount: item.amount, event_id: item.eventId, channel: CONFIG.channel, test: Boolean(item.test) }),
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+        if (retryable && attempt < CONFIG.maxRetries) { await wait(CONFIG.retryBaseMs * (2 ** (attempt - 1))); continue; }
+        throw new Error(body.detail || `HTTP ${response.status}`);
       }
-      return clean;
-    } catch {
-      return {};
-    }
+      const audio = await response.blob();
+      if (audio.size < 100) throw new Error("Audio vacío");
+      return audio;
+    } catch (error) {
+      if (attempt === CONFIG.maxRetries) throw error;
+      await wait(CONFIG.retryBaseMs * (2 ** attempt));
+    } finally { clearTimeout(timeout); }
   }
+  throw new Error("No se pudo sintetizar");
+}
 
-  _save() {
+function playAudio(blob, item) {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(safetyTimer);
+      audio.pause();
+      URL.revokeObjectURL(url);
+      resolve();
+    };
+    const safetyTimer = setTimeout(finish, 180000);
+    audio.onended = finish;
+    audio.onerror = finish;
+    audio.onplaying = () => { bubble.dataset.state = "speaking"; log(`Reproduciendo ${item.username}`); };
+    audio.play().then(() => { bubble.dataset.state = "speaking"; }).catch(finish);
+  });
+}
+
+async function processQueue() {
+  if (processing) return;
+  processing = true;
+  while (queue.length) {
+    const item = queue.shift();
+    showBubble(item, "generating");
     try {
-      const now = Date.now();
-      const clean = {};
-      for (const [k, ts] of Object.entries(this._seen)) {
-        if (now - ts < CONFIG.eventDedupTtlMs) clean[k] = ts;
-      }
-      this._seen = clean;
-      localStorage.setItem(this._storageKey, JSON.stringify(clean));
-    } catch {}
-  }
-
-  _keysFor(username, amount, text, realId) {
-    const keys = [];
-    if (realId) keys.push(`se:${realId}`);
-    keys.push(`c:${username}:${amount}:${text}`);
-    return keys;
-  }
-
-  _isSeen(keys) {
-    const now = Date.now();
-    return keys.some((k) => {
-      const ts = this._seen[k];
-      return typeof ts === 'number' && now - ts < CONFIG.eventDedupTtlMs;
-    });
-  }
-
-  markSeen(keys) {
-    const now = Date.now();
-    for (const k of keys) this._seen[k] = now;
-    this._save();
-  }
-
-  unmark(keys) {
-    for (const k of keys) delete this._seen[k];
-    this._save();
-  }
-
-  parse(rawEvent) {
-    if (!rawEvent || (rawEvent.type !== 'cheer' && rawEvent.type !== 'bits')) {
-      return null;
+      const audio = await requestAudio(item);
+      await playAudio(audio, item);
+      hideBubble();
+    } catch (error) {
+      log(`Error: ${error.message}`);
+      showBubble({ ...item, text: `No se pudo reproducir: ${item.text}` }, "error");
+      await wait(2500);
+      hideBubble();
+      unmarkSeen(item.keys);
     }
+    await wait(CONFIG.gapMs);
+  }
+  processing = false;
+}
 
-    const data = rawEvent.data || rawEvent;
-    const username = data.displayName || data.name || data.username ||
-      rawEvent.name || rawEvent.user_name || '';
-    const amount = parseInt(data.amount || rawEvent.amount || rawEvent.bits, 10) || 0;
-    let text = String(data.message || rawEvent.message || rawEvent.text || '').trim();
+function enqueue(item) {
+  if (queue.length >= CONFIG.maxQueue) return;
+  queue.push(item);
+  processQueue();
+}
 
-    if (!username && !text && !amount) return null;
-
-    text = text.replace(/!tts/gi, '');
-    text = text.replace(/\bcheer\d+\b/gi, '');
-    text = text.replace(/\s+/g, ' ').trim().substring(0, CONFIG.maxTextLength);
-
-    const realId = rawEvent._id || data._id;
-    const dedupKeys = this._keysFor(username, amount, text, realId);
-
-    if (this._isSeen(dedupKeys)) {
-      this._logger.info(`Duplicado omitido: ${username}`);
-      return null;
-    }
-
-    return { username, amount, text, realId: realId || '', dedupKeys };
+function setLiveState(value) {
+  liveState = Boolean(value);
+  fetch(`${CONFIG.apiUrl}/api/v1/lifecycle`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Widget-Token": CONFIG.widgetToken },
+    body: JSON.stringify({ live: liveState })
+  }).catch(() => {});
+  if (liveState && !keepWarmTimer) {
+    keepWarmTimer = setInterval(() => setLiveState(true), CONFIG.keepWarmIntervalMs);
+  } else if (!liveState && keepWarmTimer) {
+    clearInterval(keepWarmTimer);
+    keepWarmTimer = null;
   }
 }
 
-// ------------------------------------------------------------------
-// 6. ORQUESTADOR
-// ------------------------------------------------------------------
-class TTSWidget {
-  constructor() {
-    this._logger = new Logger();
-    this._ui = new TTSWidgetUI();
-    this._ui.attachLogger(this._logger);
-    this._api = new ApiClient(CONFIG.apiUrl, this._logger);
-    this._queue = new AudioQueue(this._ui, this._api, this._logger);
-    this._processor = new EventProcessor(this._logger);
+function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
-    this._keepWarmTimer = null;
-
-    anchorRootToViewport();
-    this._bindEvents();
-    this._logger.info('Widget listo v1.0.1 (api=' + CONFIG.apiUrl + ')');
-    this._unlockAudio();
-    this._maybeSelfTest();
-
-    window.addEventListener('onSessionChange', (event) => {
-      const detail = event?.detail || {};
-      const liveFlag = detail.live ?? detail.channel?.live ?? detail.session?.live ?? null;
-      if (liveFlag === null) return;
-      if (liveFlag === true) this._startKeepWarm();
-      else this._stopKeepWarm();
-    });
-  }
-
-  // Desbloquea el audio en el CEF de OBS (el primer play() sin gesto
-  // de usuario puede fallar si no se resume el AudioContext antes).
-  _unlockAudio() {
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (Ctx) {
-        const ctx = new Ctx();
-        ctx.resume().catch(() => {});
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        gain.gain.value = 0;
-        osc.connect(gain).connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.05);
-      }
-    } catch (e) {
-      this._logger.warn(`unlockAudio: ${e.message}`);
-    }
-  }
-
-  // ?test=1 → burbuja de prueba 4 s sin llamar a SE ni al servidor.
-  _maybeSelfTest() {
-    try {
-      if (!new URLSearchParams(location.search).has('test')) return;
-      this._logger.info('Self-test burbuja: mostrando 4s…');
-      setTimeout(() => {
-        this._ui.showBubble('selftest', 'Burbuja de prueba — si me ves, el widget va bien', 100);
-        setTimeout(() => this._ui.hideBubble(), 4000);
-      }, 500);
-    } catch (e) {
-      this._logger.warn(`self-test: ${e.message}`);
-    }
-  }
-
-  _bindEvents() {
-    window.addEventListener('onEventReceived', (event) => {
-      const detail = event?.detail;
-      if (!detail?.event) return;
-
-      const parsed = this._processor.parse(detail.event);
-      if (!parsed) return;
-
-      if (parsed.amount < CONFIG.minBits) {
-        this._logger.info(`Ignored: ${parsed.username} (${parsed.amount} < ${CONFIG.minBits} bits)`);
-        return;
-      }
-
-      if (!parsed.text) {
-        parsed.text = `${parsed.username} dona ${parsed.amount} bits`;
-      }
-      if (parsed.text.length > CONFIG.maxTextLength) {
-        parsed.text = parsed.text.substring(0, CONFIG.maxTextLength);
-      }
-
-      // Marcar antes de encolar (corta reentregas simultáneas); si la
-      // síntesis falla del todo, desmarcar para no perder el mensaje.
-      this._processor.markSeen(parsed.dedupKeys);
-
-      this._logger.info(`Enqueue: ${parsed.username} (${parsed.amount})`);
-      const eventId = parsed.realId ? `se:${parsed.realId}` : '';
-      this._queue
-        .enqueue(parsed.username, parsed.text, parsed.amount, eventId)
-        .then((ok) => { if (!ok) this._processor.unmark(parsed.dedupKeys); })
-        .catch(() => this._processor.unmark(parsed.dedupKeys));
-    });
-  }
-
-  _startKeepWarm() {
-    if (this._keepWarmTimer) return;
-    this._keepWarmTimer = setInterval(() => this._api.pingHealth(), CONFIG.keepWarmIntervalMs);
-  }
-
-  _stopKeepWarm() {
-    if (!this._keepWarmTimer) return;
-    clearInterval(this._keepWarmTimer);
-    this._keepWarmTimer = null;
-  }
+function runTest(text = "Este es un mensaje de prueba. Si me ves y me oyes, el bot funciona correctamente.") {
+  const item = { eventId: `test:${Date.now()}:${Math.random()}`, username: "Prueba", amount: 100, text: cleanText(text), keys: [], test: true };
+  enqueue(item);
 }
 
-new TTSWidget();
+window.meronoTest = runTest;
+window.addEventListener("onEventReceived", event => {
+  const item = parseEvent(event?.detail?.event);
+  if (!item || isDuplicate(item.keys)) return;
+  markSeen(item.keys);
+  log(`Cheer recibido: ${item.username} (${item.amount})`);
+  enqueue(item);
+});
+window.addEventListener("onSessionChange", event => {
+  const detail = event?.detail || {};
+  const value = detail.live ?? detail.channel?.live ?? detail.session?.live ?? detail.status;
+  if (value === true || value === "live") setLiveState(true);
+  else if (value === false || value === "offline") setLiveState(false);
+});
+if (new URLSearchParams(location.search).has("test")) setTimeout(() => runTest(), 800);
 </script>
 </body>
 </html>

@@ -11,8 +11,15 @@ services:
         sync: false
       - key: FISH_VOICE_ID
         sync: false
+      - key: WIDGET_TOKEN
+        sync: false
       - key: FISH_MODEL
         value: s2.1-pro-free
-      # Opcional: fija la URL pública si no quieres que se deduzca sola.
-      # - key: PUBLIC_BASE_URL
-      #   value: https://merono-tts.onrender.com
+      - key: ALLOWED_CHANNEL
+        value: alimentacionchino
+      - key: MIN_BITS
+        value: 10
+      - key: CORS_ORIGINS
+        value: https://streamelements.com,https://www.streamelements.com
+      - key: PUBLIC_BASE_URL
+        sync: false
