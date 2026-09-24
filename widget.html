@@ -91,6 +91,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
 .bubble[data-state="error"] { border-color: rgba(255, 105, 145, .8); }
 .bubble[data-state="error"] .message { color: #ffc0d0; }
 .status { display: none; position: fixed; right: 8px; top: 6px; color: rgba(255,255,255,.32); font: 11px/1.2 monospace; text-shadow: 0 1px 2px #000; }
+#tts-audio { position: fixed; left: -9999px; top: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -110,6 +111,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
     </div>
   </section>
 </div>
+<audio id="tts-audio" preload="auto"></audio>
 <div class="status" id="status">Meroño TTS</div>
 <script>
 const CONFIG = Object.freeze({
@@ -135,7 +137,12 @@ const messageEl = document.getElementById("message");
 const bitsEl = document.getElementById("bits");
 const normalEl = document.getElementById("profile-normal");
 const chinoEl = document.getElementById("profile-chino");
+const audioEl = document.getElementById("tts-audio");
 const statusEl = document.getElementById("status");
+
+function estimatedMs(text) {
+  return Math.min(90000, Math.max(3500, String(text || "").length * 85));
+}
 
 function imageUrl(name) {
   return `${String(CONFIG.imageBaseUrl || "").replace(/\/+$/, "")}/images/${name}`;
@@ -303,28 +310,45 @@ async function requestAudio(item) {
 function playAudio(blob, item) {
   return new Promise(resolve => {
     const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.preload = "auto";
-    audio.volume = 1;
-    currentAudio = audio;
+    const audio = audioEl || new Audio();
+    const expectedMs = estimatedMs(item.text);
     let settled = false;
-    const finish = () => {
+    let safetyTimer = setTimeout(() => finish("timeout"), Math.max(expectedMs + 8000, 180000));
+    const finish = reason => {
       if (settled) return;
       settled = true;
       clearTimeout(safetyTimer);
-      audio.pause();
+      try { audio.pause(); } catch {}
+      try { audio.removeAttribute("src"); audio.load(); } catch {}
       if (currentAudio === audio) currentAudio = null;
       URL.revokeObjectURL(url);
-      resolve();
+      if (reason) log(`Audio terminado (${reason}): ${item.username}`);
+      resolve(reason || "");
     };
-    const safetyTimer = setTimeout(finish, 180000);
-    audio.onended = finish;
-    audio.onerror = () => { log(`Audio inválido: ${item.username}`); finish(); };
-    audio.onplaying = () => { bubble.dataset.state = "speaking"; log(`Reproduciendo ${item.username}`); };
+    currentAudio = audio;
+    audio.preload = "auto";
+    audio.volume = 1;
+    audio.onended = () => finish("");
+    audio.onerror = () => { log(`Audio inválido: ${item.username}`); finish("error"); };
+    audio.onplaying = () => {
+      bubble.dataset.state = "speaking";
+      const seconds = Number.isFinite(audio.duration) && audio.duration > 0 ? Math.round(audio.duration * 10) / 10 : 0;
+      log(`Reproduciendo ${item.username} dur=${seconds}s`);
+    };
     const resume = audioContext ? audioContext.resume() : Promise.resolve();
     resume.catch(() => {}).finally(() => {
-      audio.load();
-      audio.play().then(() => { bubble.dataset.state = "speaking"; }).catch(error => { log(`Audio bloqueado: ${error.message}`); finish(); });
+      try {
+        audio.src = url;
+        audio.load();
+        const played = audio.play();
+        bubble.dataset.state = "speaking";
+        if (played && typeof played.then === "function") {
+          played.catch(error => { log(`Audio bloqueado: ${error.message}`); finish("blocked"); });
+        }
+      } catch (error) {
+        log(`Audio bloqueado: ${error.message}`);
+        finish("blocked");
+      }
     });
   });
 }
@@ -337,7 +361,11 @@ async function processQueue() {
     showBubble(item, "generating");
     try {
       const audio = await requestAudio(item);
-      await playAudio(audio, item);
+      const reason = await playAudio(audio, item);
+      if (reason) {
+        showBubble({ ...item, text: `No se pudo reproducir: ${item.text}` }, "error");
+        await wait(estimatedMs(item.text));
+      }
       hideBubble();
     } catch (error) {
       if (error && error.code === "DUPLICATE") {
