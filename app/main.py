@@ -91,6 +91,7 @@ async def speech(
 ) -> Response:
     _authenticate(x_widget_token)
     service = _service(request)
+    instance = (x_widget_instance or "unknown")[:12]
     event_reserved = False
     try:
         service.check_rate_limit()
@@ -104,18 +105,21 @@ async def speech(
     except SpeechError as error:
         if event_reserved and payload.event_id:
             service.release_event(payload.event_id, x_widget_instance)
+        logger.warning("speech %s instance=%s event=%s", error.status_code, instance, payload.event_id or "-")
         raise _payload_error(error) from error
     except Exception:
         if event_reserved and payload.event_id:
             service.release_event(payload.event_id, x_widget_instance)
-        logger.exception("Unexpected synthesis error")
+        logger.exception("Unexpected synthesis error instance=%s", instance)
         raise HTTPException(status_code=500, detail="Error interno de síntesis") from None
+    logger.info("speech 200 instance=%s event=%s cache=%s bytes=%s", instance, payload.event_id or "-", cache_status, len(audio))
     return Response(
         content=audio,
         media_type="audio/mpeg",
         headers={
             "X-Cache": cache_status,
             "X-Audio-Bytes": str(len(audio)),
+            "X-Widget-Instance": x_widget_instance,
             "Cache-Control": "no-store",
         },
     )

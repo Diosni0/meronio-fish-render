@@ -203,9 +203,20 @@ function saveSeenEvents() {
   } catch {}
 }
 
+const debugMode = (() => {
+  try { return new URLSearchParams(location.search).has("debug"); } catch { return false; }
+})();
+let statRequests = 0;
+let statPlayed = 0;
+let statDuplicates = 0;
+let statMuted = 0;
+if (debugMode) statusEl.style.display = "block";
+
 function log(message) {
   console.log(`[Meroño TTS] ${message}`);
-  statusEl.textContent = message;
+  statusEl.textContent = debugMode
+    ? `[${String(instanceId).slice(0, 8)} req=${statRequests} play=${statPlayed} dup=${statDuplicates} mute=${statMuted}] ${message}`
+    : message;
 }
 
 function containsChinese(value) {
@@ -298,6 +309,7 @@ async function requestAudio(item) {
       }
       const audio = await response.blob();
       if (audio.size < 100) throw new Error("Audio vacío");
+      statRequests++;
       return audio;
     } catch (error) {
       if ((error && error.retryable === false) || attempt === CONFIG.maxRetries) throw error;
@@ -332,6 +344,7 @@ function playAudio(blob, item) {
     audio.onerror = () => { log(`Audio inválido: ${item.username}`); finish("error"); };
     audio.onplaying = () => {
       bubble.dataset.state = "speaking";
+      statPlayed++;
       const seconds = Number.isFinite(audio.duration) && audio.duration > 0 ? Math.round(audio.duration * 10) / 10 : 0;
       log(`Reproduciendo ${item.username} dur=${seconds}s`);
     };
@@ -359,6 +372,7 @@ async function processQueue() {
   while (queue.length) {
     const item = queue.shift();
     if (item.muted) {
+      statMuted++;
       showBubble(item, "speaking");
       await wait(estimatedMs(item.text));
       hideBubble();
@@ -376,6 +390,7 @@ async function processQueue() {
       hideBubble();
     } catch (error) {
       if (error && error.code === "DUPLICATE") {
+        statDuplicates++;
         log("Duplicado ignorado");
         hideBubble();
       } else {
