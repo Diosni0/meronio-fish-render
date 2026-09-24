@@ -358,6 +358,13 @@ async function processQueue() {
   processing = true;
   while (queue.length) {
     const item = queue.shift();
+    if (item.muted) {
+      showBubble(item, "speaking");
+      await wait(estimatedMs(item.text));
+      hideBubble();
+      await wait(CONFIG.gapMs);
+      continue;
+    }
     showBubble(item, "generating");
     try {
       const audio = await requestAudio(item);
@@ -407,6 +414,12 @@ function setLiveState(value) {
 
 function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
+function isEditorPreview() {
+  try {
+    return location.pathname.includes("/editor") || new URLSearchParams(location.search).has("er");
+  } catch { return false; }
+}
+
 function runTest(text = "Este es un mensaje de prueba. Si me ves y me oyes, el bot funciona correctamente.") {
   const item = { eventId: `test:${Date.now()}:${Math.random()}`, username: "Prueba", amount: 100, text: cleanText(text), keys: [], test: true };
   enqueue(item);
@@ -418,6 +431,11 @@ window.addEventListener("onEventReceived", event => {
   const item = parseEvent(event?.detail?.event);
   if (!item || isDuplicate(item.keys)) return;
   markSeen(item.keys);
+  if (isEditorPreview()) {
+    log(`Vista previa sin audio: ${item.username} (${item.amount})`);
+    enqueue({ ...item, muted: true });
+    return;
+  }
   log(`Cheer recibido: ${item.username} (${item.amount})`);
   enqueue(item);
 });
