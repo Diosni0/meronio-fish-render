@@ -38,7 +38,7 @@ class Settings:
     def from_env(cls) -> "Settings":
         origins = _list_env(
             "CORS_ORIGINS",
-            "https://streamelements.com,https://www.streamelements.com",
+            "null,https://streamelements.com,https://www.streamelements.com",
         )
         return cls(
             fish_api_key=os.getenv("FISH_API_KEY", "").strip(),

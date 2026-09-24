@@ -138,6 +138,14 @@ const bitsEl = document.getElementById("bits");
 const normalEl = document.getElementById("profile-normal");
 const chinoEl = document.getElementById("profile-chino");
 const statusEl = document.getElementById("status");
+
+function imageUrl(name) {
+  return `${String(CONFIG.imageBaseUrl || "").replace(/\/+$/, "")}/images/${name}`;
+}
+
+normalEl.src = imageUrl("profile.png");
+chinoEl.src = imageUrl("profile_chino.png");
+
 const instanceId = (() => {
   try {
     const key = "merono_tts_instance_v2";
@@ -258,6 +266,7 @@ function hideBubble() {
 
 async function requestAudio(item) {
   for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
+    try { log(`Backend: ${new URL(CONFIG.apiUrl).host}`); } catch {}
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), CONFIG.fetchTimeoutMs);
     try {
