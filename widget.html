@@ -79,7 +79,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
 .header { display: flex; align-items: center; gap: 12px; min-height: 28px; }
 .username { max-width: 390px; overflow: hidden; color: var(--purple-light); font-size: 23px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
 .bits { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; color: var(--gold); background: rgba(255, 215, 106, .1); border: 1px solid rgba(255, 215, 106, .18); border-radius: 999px; font-size: 17px; font-weight: 750; white-space: nowrap; }
-.message { max-width: none; margin-top: 9px; color: var(--text); font-size: 22px; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.message { max-width: none; max-height: 96px; margin-top: 9px; color: var(--text); font-size: 22px; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .wave { display: flex; align-items: center; gap: 4px; height: 20px; margin-top: 10px; opacity: .35; }
 .bubble[data-state="speaking"] .wave { opacity: 1; }
 .bar { width: 4px; height: 8px; border-radius: 4px; background: linear-gradient(180deg, var(--purple-light), var(--purple)); animation: wave .75s ease-in-out infinite; }
@@ -122,7 +122,9 @@ const CONFIG = Object.freeze({
   imageBaseUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   minBits: 10,
   maxTextLength: 600,
-  maxDisplayChars: 150,
+  maxDisplayChars: 300,
+  maxMessageFont: 22,
+  minMessageFont: 13,
   keepWarmIntervalMs: 240000,
   dedupTtlMs: 300000,
   gapMs: 450,
@@ -150,6 +152,17 @@ function ellipsize(value, max) {
   const text = String(value || "").trim();
   if (text.length <= max) return text;
   return `${text.slice(0, max).trimEnd()}…`;
+}
+
+function fitMessage() {
+  const max = CONFIG.maxMessageFont;
+  const min = CONFIG.minMessageFont;
+  let size = max;
+  messageEl.style.fontSize = `${size}px`;
+  while (size > min && messageEl.scrollHeight > messageEl.clientHeight + 1) {
+    size = Math.max(min, size - 0.5);
+    messageEl.style.fontSize = `${size}px`;
+  }
 }
 
 function imageUrl(name) {
@@ -276,6 +289,7 @@ function showBubble(item, state) {
   root.style.inset = "0";
   usernameEl.textContent = item.username;
   messageEl.textContent = ellipsize(item.text, CONFIG.maxDisplayChars);
+  fitMessage();
   bitsEl.textContent = Number(item.amount || 0).toLocaleString("es-ES");
   const chinese = containsChinese(item.text);
   normalEl.classList.toggle("hidden", chinese);
@@ -351,7 +365,7 @@ function playAudio(blob, item) {
     audio.onended = () => finish("");
     audio.onerror = () => { log(`Audio inválido: ${item.username}`); finish("error"); };
     audio.onplaying = () => {
-      bubble.dataset.state = "speaking";
+      showBubble(item, "speaking");
       statPlayed++;
       const seconds = Number.isFinite(audio.duration) && audio.duration > 0 ? Math.round(audio.duration * 10) / 10 : 0;
       log(`Reproduciendo ${item.username} dur=${seconds}s`);
@@ -362,9 +376,11 @@ function playAudio(blob, item) {
         audio.src = url;
         audio.load();
         const played = audio.play();
-        bubble.dataset.state = "speaking";
         if (played && typeof played.then === "function") {
-          played.catch(error => { log(`Audio bloqueado: ${error.message}`); finish("blocked"); });
+          played.then(() => showBubble(item, "speaking"))
+            .catch(error => { log(`Audio bloqueado: ${error.message}`); finish("blocked"); });
+        } else {
+          showBubble(item, "speaking");
         }
       } catch (error) {
         log(`Audio bloqueado: ${error.message}`);
@@ -387,7 +403,6 @@ async function processQueue() {
       await wait(CONFIG.gapMs);
       continue;
     }
-    showBubble(item, "generating");
     try {
       const audio = await requestAudio(item);
       const reason = await playAudio(audio, item);
