@@ -116,6 +116,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
 <div class="status" id="status">Meroño TTS</div>
 <script>
 const CONFIG = Object.freeze({
+  version: "2.2.0-500chars",
   apiUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   widgetToken: "REEMPLAZA_CON_TU_WIDGET_TOKEN",
   channel: "alimentacionchino",
@@ -471,7 +472,7 @@ function runTest(text = "Este es un mensaje de prueba. Si me ves y me oyes, el b
 
 window.meronoTest = runTest;
 unlockAudio();
-isEditorPreview().then(editor => log(editor ? "Modo editor (sin audio)" : "Modo directo"));
+isEditorPreview().then(editor => log(`Widget v${CONFIG.version} - ${editor ? "Modo editor (sin audio)" : "Modo directo"}`));
 window.addEventListener("onEventReceived", async event => {
   const item = parseEvent(event?.detail?.event);
   if (!item || isDuplicate(item.keys)) return;
