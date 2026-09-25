@@ -26,7 +26,8 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
   display: flex;
   align-items: center;
   gap: 16px;
-  max-width: min(720px, calc(100vw - 68px));
+  width: min(760px, calc(100vw - 68px));
+  height: 196px;
   padding: 14px;
   color: var(--text);
   background: var(--panel);
@@ -74,11 +75,11 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
   box-shadow: 0 0 18px rgba(139, 92, 246, .28);
 }
 .avatar.hidden { display: none; }
-.body { min-width: 0; max-width: 570px; padding: 4px 12px 4px 2px; }
+.body { flex: 1 1 auto; min-width: 0; max-width: none; padding: 4px 12px 4px 2px; }
 .header { display: flex; align-items: center; gap: 12px; min-height: 28px; }
 .username { max-width: 390px; overflow: hidden; color: var(--purple-light); font-size: 23px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
 .bits { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; color: var(--gold); background: rgba(255, 215, 106, .1); border: 1px solid rgba(255, 215, 106, .18); border-radius: 999px; font-size: 17px; font-weight: 750; white-space: nowrap; }
-.message { max-width: 570px; margin-top: 9px; color: var(--text); font-size: 22px; line-height: 1.35; overflow-wrap: anywhere; }
+.message { max-width: none; margin-top: 9px; color: var(--text); font-size: 22px; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .wave { display: flex; align-items: center; gap: 4px; height: 20px; margin-top: 10px; opacity: .35; }
 .bubble[data-state="speaking"] .wave { opacity: 1; }
 .bar { width: 4px; height: 8px; border-radius: 4px; background: linear-gradient(180deg, var(--purple-light), var(--purple)); animation: wave .75s ease-in-out infinite; }
@@ -121,6 +122,7 @@ const CONFIG = Object.freeze({
   imageBaseUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   minBits: 10,
   maxTextLength: 600,
+  maxDisplayChars: 150,
   keepWarmIntervalMs: 240000,
   dedupTtlMs: 300000,
   gapMs: 450,
@@ -142,6 +144,12 @@ const statusEl = document.getElementById("status");
 
 function estimatedMs(text) {
   return Math.min(90000, Math.max(3500, String(text || "").length * 85));
+}
+
+function ellipsize(value, max) {
+  const text = String(value || "").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max).trimEnd()}…`;
 }
 
 function imageUrl(name) {
@@ -267,7 +275,7 @@ function showBubble(item, state) {
   root.style.position = "fixed";
   root.style.inset = "0";
   usernameEl.textContent = item.username;
-  messageEl.textContent = item.text;
+  messageEl.textContent = ellipsize(item.text, CONFIG.maxDisplayChars);
   bitsEl.textContent = Number(item.amount || 0).toLocaleString("es-ES");
   const chinese = containsChinese(item.text);
   normalEl.classList.toggle("hidden", chinese);
