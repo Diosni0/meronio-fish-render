@@ -116,7 +116,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
 <div class="status" id="status">Meroño TTS</div>
 <script>
 const CONFIG = Object.freeze({
-  version: "2.2.0-500chars",
+  version: "2.3.0-activity-warm",
   apiUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   widgetToken: "REEMPLAZA_CON_TU_WIDGET_TOKEN",
   channel: "alimentacionchino",
@@ -125,6 +125,7 @@ const CONFIG = Object.freeze({
   maxTextLength: 600,
   maxDisplayChars: 500,
   keepWarmIntervalMs: 240000,
+  activityTimeoutMs: 1200000,
   dedupTtlMs: 300000,
   gapMs: 450,
   maxQueue: 8,
@@ -173,6 +174,9 @@ const instanceId = (() => {
 const hanPattern = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 let liveState = false;
 let keepWarmTimer = null;
+let lastActivity = 0;
+let editorModeCache = null;
+let editorModeCheckedAt = 0;
 let eventSeen = readSeenEvents();
 let queue = [];
 let processing = false;
@@ -430,11 +434,22 @@ function setLiveState(value) {
     body: JSON.stringify({ live: liveState })
   }).catch(() => {});
   if (liveState && !keepWarmTimer) {
-    keepWarmTimer = setInterval(() => setLiveState(true), CONFIG.keepWarmIntervalMs);
+    keepWarmTimer = setInterval(() => {
+      if (Date.now() - lastActivity > CONFIG.activityTimeoutMs) {
+        setLiveState(false);
+        return;
+      }
+      setLiveState(true);
+    }, CONFIG.keepWarmIntervalMs);
   } else if (!liveState && keepWarmTimer) {
     clearInterval(keepWarmTimer);
     keepWarmTimer = null;
   }
+}
+
+function markActivity() {
+  lastActivity = Date.now();
+  if (!keepWarmTimer) setLiveState(true);
 }
 
 function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
@@ -455,17 +470,22 @@ function fallbackEditorPreview() {
 }
 
 async function isEditorPreview() {
+  if (editorModeCache !== null && Date.now() - editorModeCheckedAt < 30000) return editorModeCache;
+  let result = fallbackEditorPreview();
   try {
     if (typeof SE_API !== "undefined" && SE_API && typeof SE_API.getOverlayStatus === "function") {
       let status = SE_API.getOverlayStatus();
       if (status && typeof status.then === "function") status = await status;
-      if (status && typeof status.isEditorMode === "boolean") return status.isEditorMode;
+      if (status && typeof status.isEditorMode === "boolean") result = status.isEditorMode;
     }
   } catch {}
-  return fallbackEditorPreview();
+  editorModeCache = result;
+  editorModeCheckedAt = Date.now();
+  return result;
 }
 
 function runTest(text = "Este es un mensaje de prueba. Si me ves y me oyes, el bot funciona correctamente.") {
+  markActivity();
   const item = { eventId: `test:${Date.now()}:${Math.random()}`, username: "Prueba", amount: 100, text: cleanText(text), keys: [], test: true };
   enqueue(item);
 }
@@ -474,10 +494,11 @@ window.meronoTest = runTest;
 unlockAudio();
 isEditorPreview().then(editor => log(`Widget v${CONFIG.version} - ${editor ? "Modo editor (sin audio)" : "Modo directo"}`));
 window.addEventListener("onEventReceived", async event => {
+  const editor = await isEditorPreview();
+  if (!editor) markActivity();
   const item = parseEvent(event?.detail?.event);
   if (!item || isDuplicate(item.keys)) return;
   markSeen(item.keys);
-  const editor = await isEditorPreview();
   if (editor) {
     log(`Vista previa sin audio: ${item.username} (${item.amount})`);
     enqueue({ ...item, muted: true });
@@ -486,10 +507,13 @@ window.addEventListener("onEventReceived", async event => {
   log(`Cheer recibido: ${item.username} (${item.amount})`);
   enqueue(item);
 });
+window.addEventListener("onSessionUpdate", () => {
+  if (editorModeCache !== true) markActivity();
+});
 window.addEventListener("onSessionChange", event => {
   const detail = event?.detail || {};
   const value = detail.live ?? detail.channel?.live ?? detail.session?.live ?? detail.status;
-  if (value === true || value === "live") setLiveState(true);
+  if (value === true || value === "live") markActivity();
   else if (value === false || value === "offline") setLiveState(false);
 });
 if (new URLSearchParams(location.search).has("test")) setTimeout(() => runTest(), 800);
