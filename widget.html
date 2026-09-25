@@ -429,7 +429,7 @@ function setLiveState(value) {
 
 function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
-function isEditorPreview() {
+function fallbackEditorPreview() {
   try {
     const href = String(location.href || "");
     const referrer = String(document.referrer || "");
@@ -444,6 +444,17 @@ function isEditorPreview() {
   } catch { return false; }
 }
 
+async function isEditorPreview() {
+  try {
+    if (typeof SE_API !== "undefined" && SE_API && typeof SE_API.getOverlayStatus === "function") {
+      let status = SE_API.getOverlayStatus();
+      if (status && typeof status.then === "function") status = await status;
+      if (status && typeof status.isEditorMode === "boolean") return status.isEditorMode;
+    }
+  } catch {}
+  return fallbackEditorPreview();
+}
+
 function runTest(text = "Este es un mensaje de prueba. Si me ves y me oyes, el bot funciona correctamente.") {
   const item = { eventId: `test:${Date.now()}:${Math.random()}`, username: "Prueba", amount: 100, text: cleanText(text), keys: [], test: true };
   enqueue(item);
@@ -451,12 +462,13 @@ function runTest(text = "Este es un mensaje de prueba. Si me ves y me oyes, el b
 
 window.meronoTest = runTest;
 unlockAudio();
-log(isEditorPreview() ? "Modo editor (sin audio)" : "Modo directo");
-window.addEventListener("onEventReceived", event => {
+isEditorPreview().then(editor => log(editor ? "Modo editor (sin audio)" : "Modo directo"));
+window.addEventListener("onEventReceived", async event => {
   const item = parseEvent(event?.detail?.event);
   if (!item || isDuplicate(item.keys)) return;
   markSeen(item.keys);
-  if (isEditorPreview()) {
+  const editor = await isEditorPreview();
+  if (editor) {
     log(`Vista previa sin audio: ${item.username} (${item.amount})`);
     enqueue({ ...item, muted: true });
     return;
