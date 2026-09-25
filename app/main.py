@@ -1,4 +1,5 @@
 import logging
+import sys
 from contextlib import asynccontextmanager
 
 import httpx
@@ -12,6 +13,11 @@ from .config import Settings
 from .services import SpeechError, SpeechService
 from .text import clean_username, fallback_text, normalize_text
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    stream=sys.stdout,
+)
 logger = logging.getLogger("merono-tts")
 settings = Settings.from_env()
 
