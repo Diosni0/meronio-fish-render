@@ -431,7 +431,16 @@ function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 function isEditorPreview() {
   try {
-    return location.pathname.includes("/editor") || new URLSearchParams(location.search).has("er");
+    const href = String(location.href || "");
+    const referrer = String(document.referrer || "");
+    let topHref = "";
+    try { topHref = String(window.top.location.href || ""); } catch {}
+    return (
+      href.includes("/editor") ||
+      referrer.includes("/editor") ||
+      topHref.includes("/editor") ||
+      new URLSearchParams(location.search).has("er")
+    );
   } catch { return false; }
 }
 
@@ -442,6 +451,7 @@ function runTest(text = "Este es un mensaje de prueba. Si me ves y me oyes, el b
 
 window.meronoTest = runTest;
 unlockAudio();
+log(isEditorPreview() ? "Modo editor (sin audio)" : "Modo directo");
 window.addEventListener("onEventReceived", event => {
   const item = parseEvent(event?.detail?.event);
   if (!item || isDuplicate(item.keys)) return;
