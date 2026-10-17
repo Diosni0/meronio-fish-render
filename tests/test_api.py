@@ -41,6 +41,7 @@ def make_client(tmp_path, monkeypatch) -> TestClient:
 def test_dashboard_and_settings_are_served(tmp_path, monkeypatch) -> None:
     with make_client(tmp_path, monkeypatch) as client:
         assert client.get("/dashboard").status_code == 200
+        assert client.get("/widget").status_code == 200
         payload = client.get("/api/settings").json()
         assert "drama-3" in payload["models"]
         assert payload["settings"]["model"] == main.settings.fish_model

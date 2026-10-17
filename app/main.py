@@ -26,6 +26,7 @@ settings = Settings.from_env()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DASHBOARD_PATH = BASE_DIR / "dashboard.html"
+WIDGET_PATH = BASE_DIR / "widget.html"
 
 
 class SpeechPayload(BaseModel):
@@ -140,6 +141,17 @@ def dashboard() -> Response:
         raise HTTPException(status_code=404, detail="dashboard.html no encontrado")
     return FileResponse(
         str(DASHBOARD_PATH),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+    )
+
+
+@app.get("/widget")
+def widget_source() -> Response:
+    if not WIDGET_PATH.exists():
+        raise HTTPException(status_code=404, detail="widget.html no encontrado")
+    return FileResponse(
+        str(WIDGET_PATH),
+        media_type="text/html; charset=utf-8",
         headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
     )
 

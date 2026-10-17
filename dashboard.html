@@ -120,7 +120,7 @@
 
   .actions{display:flex;align-items:center;justify-content:space-between;gap:14px;padding-top:16px;border-top:1px solid var(--line)}
   .actions-right{display:flex;align-items:center;gap:10px;margin-left:auto}
-  .btn{font:inherit;font-size:13px;font-weight:500;border-radius:10px;padding:9px 24px;cursor:pointer;transition:opacity .2s,transform .15s,background .2s;letter-spacing:.2px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:13px;font-weight:500;border-radius:10px;padding:9px 24px;cursor:pointer;text-decoration:none;transition:opacity .2s,transform .15s,background .2s;letter-spacing:.2px}
   .btn:hover{transform:translateY(-1px)}
   .btn:active{transform:translateY(0)}
   .btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
@@ -229,6 +229,7 @@
   <div class="actions">
     <div class="toast" id="toast"></div>
     <div class="actions-right">
+      <a class="btn btn-ghost" href="/widget" target="_blank" rel="noopener">Ver widget</a>
       <button class="btn btn-ghost" id="reset-btn">Restaurar</button>
       <button class="btn btn-save" id="save-btn">Guardar ajustes</button>
     </div>
@@ -417,12 +418,16 @@ async function loadMonitor() {
     $('stat-messages').textContent = stats.counts.speech || 0;
     $('stat-hits').textContent = stats.counts.cache_hit || 0;
     const streams = stats.instances ? stats.instances.stream : 0;
+    const previews = stats.instances ? stats.instances.preview : 0;
     $('stat-streams').textContent = streams;
     $('stat-streams').classList.toggle('warn', streams > 1);
     $('stat-duplicates').textContent = stats.counts.duplicate || 0;
     const alert = $('instance-alert');
     if (streams > 1) {
       alert.textContent = 'Hay ' + streams + ' instancias de stream activas. Solo una reproducirá el TTS; revisa las fuentes de OBS/Cloud OBS y deja una sola.';
+      alert.classList.add('show');
+    } else if (streams === 0 && previews > 1) {
+      alert.textContent = 'Hay ' + previews + ' instancias de preview y ninguna de stream. Añade ?role=stream a la URL del browser source de OBS.';
       alert.classList.add('show');
     } else {
       alert.classList.remove('show');

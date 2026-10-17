@@ -175,7 +175,11 @@ const role = (() => {
   try {
     const explicit = (new URLSearchParams(location.search).get("role") || "").trim().toLowerCase();
     if (explicit) return explicit.slice(0, 20);
-    if (typeof window.obsstudio !== "undefined") return "stream";
+    let isObs = typeof window.obsstudio !== "undefined";
+    if (!isObs) {
+      try { isObs = typeof window.top.obsstudio !== "undefined"; } catch {}
+    }
+    if (isObs) return "stream";
     const ua = navigator.userAgent || "";
     if (ua.includes("OBS/") || ua.includes("obs-browser")) return "stream";
     return "preview";
