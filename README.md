@@ -6,6 +6,7 @@ Bot de síntesis de voz para cheers de StreamElements. La versión actual se ha 
 
 - `app/`: backend FastAPI, configuración, normalización de texto y cliente de Fish Audio.
 - `widget.html`: frontend autocontenido que se pega en el Custom Widget de StreamElements.
+- `dashboard.html`: panel de ajustes de voz (modelo, prosodia, muestreo, audio y monitor).
 - `images/`: fotografías servidas por Render para la burbuja.
 - `tests/`: pruebas unitarias del procesamiento de texto.
 - `render.yaml`: configuración de despliegue.
@@ -36,7 +37,9 @@ Variables de configuración:
 
 | Variable | Valor inicial | Uso |
 |---|---|---|
-| `FISH_MODEL` | `s2.1-pro-free` | Modelo de Fish Audio |
+| `FISH_MODEL` | `s2.1-pro-free` | Modelo inicial de Fish Audio (`s2.1-pro-free`, `s2.1-pro`, `s2-pro`, `drama-3`) |
+| `ADMIN_TOKEN` | vacío | Protege los cambios del dashboard; si está vacío se usa `WIDGET_TOKEN` |
+| `TTS_SETTINGS_PATH` | `settings.json` | Archivo de ajustes del dashboard (efímero en Render free) |
 | `ALLOWED_CHANNEL` | `alimentacionchino` | Canal único permitido |
 | `MIN_BITS` | `10` | Bits mínimos para sintetizar |
 | `CORS_ORIGINS` | StreamElements | Orígenes permitidos del Custom Widget |
@@ -46,7 +49,34 @@ Variables de configuración:
 | `TTS_MAX_PENDING` | `8` | Solicitudes pendientes máximas |
 | `REQUESTS_PER_MINUTE` | `30` | Límite global de solicitudes |
 
-El token debe ser largo y aleatorio. No debe incluirse en la URL.
+El `WIDGET_TOKEN` debe ser largo y aleatorio y no debe incluirse en la URL del
+widget. El `ADMIN_TOKEN` es una credencial aparte y solo se usa en el dashboard.
+
+## Dashboard
+
+El panel está en `https://tu-servicio.onrender.com/dashboard`. Permite elegir el
+modelo (incluido **Drama 3**), ajustar prosodia, muestreo, audio y procesamiento,
+y ver el monitor de caché y eventos.
+
+Los cambios requieren `ADMIN_TOKEN` (o `WIDGET_TOKEN` si aquel está vacío). El
+panel lo pide la primera vez y lo guarda solo en la sesión del navegador.
+También admite `?token=...` para el primer acceso; el panel lo elimina de la
+barra de direcciones automáticamente.
+
+```text
+https://tu-servicio.onrender.com/dashboard?token=TU_ADMIN_TOKEN
+```
+
+Los ajustes se guardan en `TTS_SETTINGS_PATH` y se aplican al instante, sin
+reiniciar el servicio. En el plan free de Render el disco es efímero: al
+reiniciarse el proceso se vuelve al `FISH_MODEL` y a los valores por defecto.
+Para fijar un modelo de forma permanente, configura `FISH_MODEL` en Render.
+
+### Drama 3
+
+`drama-3` usa el mismo endpoint y admite direcciones de interpretación en el
+texto: `[susurrando]`, `[risa]`, `[pausa]`, o etiquetas como
+`<emphasis>importante</emphasis>`. No requiere cambios en el widget.
 
 ## Pegar el Custom Widget
 
@@ -92,7 +122,13 @@ pytest -q
 
 - `GET /health`: estado básico para el health check de Render.
 - `GET /ready`: readiness; falla si faltan secretos.
-- `POST /api/v1/speech`: devuelve MP3 y requiere `X-Widget-Token`.
+- `GET /dashboard`: panel de ajustes.
+- `GET /api/settings`: ajustes actuales y modelos disponibles.
+- `POST /api/settings`: guarda ajustes (requiere `X-Admin-Token`).
+- `POST /api/settings/reset`: restaura los valores por defecto (requiere `X-Admin-Token`).
+- `GET /api/stats`: contadores de caché, mensajes y tiempo activo.
+- `GET /api/events?limit=N`: últimos eventos para el monitor.
+- `POST /api/v1/speech`: devuelve el audio y requiere `X-Widget-Token`.
 - `POST /api/v1/lifecycle`: informa del estado live/offline y requiere `X-Widget-Token`.
 - `GET /images/*`: fotografías del overlay.
 

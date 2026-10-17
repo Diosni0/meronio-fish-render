@@ -21,6 +21,8 @@ class Settings:
     fish_api_key: str
     fish_voice_id: str
     fish_model: str
+    admin_token: str
+    settings_path: str
     widget_token: str
     allowed_channel: str
     min_bits: int
@@ -44,6 +46,8 @@ class Settings:
             fish_api_key=os.getenv("FISH_API_KEY", "").strip(),
             fish_voice_id=os.getenv("FISH_VOICE_ID", "").strip(),
             fish_model=os.getenv("FISH_MODEL", "s2.1-pro-free").strip(),
+            admin_token=os.getenv("ADMIN_TOKEN", "").strip(),
+            settings_path=os.getenv("TTS_SETTINGS_PATH", "settings.json").strip(),
             widget_token=os.getenv("WIDGET_TOKEN", "").strip(),
             allowed_channel=os.getenv("ALLOWED_CHANNEL", "alimentacionchino").strip().lower(),
             min_bits=_int_env("MIN_BITS", 10, 1, 100000),

@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from .synth import SpeechConfigStore, media_type_for
+
 
 class SpeechError(Exception):
     def __init__(self, status_code: int, message: str):
@@ -15,15 +17,22 @@ class SpeechError(Exception):
 
 
 class SpeechService:
-    def __init__(self, client: httpx.AsyncClient, settings: Any):
+    def __init__(self, client: httpx.AsyncClient, settings: Any, config: SpeechConfigStore | None = None):
         self.client = client
         self.settings = settings
-        self._cache: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
-        self._inflight: dict[str, asyncio.Future[bytes]] = {}
+        self.config = config or SpeechConfigStore(
+            default_model=settings.fish_model,
+            voice_id=settings.fish_voice_id,
+        )
+        self._cache: OrderedDict[str, tuple[float, bytes, str]] = OrderedDict()
+        self._inflight: dict[str, asyncio.Future[tuple[bytes, str]]] = {}
         self._seen_events: OrderedDict[str, tuple[float, str]] = OrderedDict()
         self._requests: deque[float] = deque()
         self._pending = 0
         self._semaphore = asyncio.Semaphore(settings.max_concurrency)
+        self._events: deque[dict] = deque(maxlen=100)
+        self._counts: dict[str, int] = {}
+        self._started = time.monotonic()
 
     def check_rate_limit(self) -> None:
         now = time.monotonic()
@@ -64,60 +73,86 @@ class SpeechService:
         while self._seen_events and next(iter(self._seen_events.values()))[0] < cutoff:
             self._seen_events.popitem(last=False)
 
-    def _cache_key(self, text: str) -> str:
+    def record_event(self, event_type: str, **data: Any) -> None:
+        self._counts[event_type] = self._counts.get(event_type, 0) + 1
+        self._events.append(
+            {
+                "time": time.time(),
+                "iso_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "event_type": event_type,
+                "data": data,
+            }
+        )
+
+    def events(self, limit: int = 20) -> list[dict]:
+        limit = max(1, min(limit, 100))
+        return list(self._events)[-limit:]
+
+    def stats(self) -> dict:
+        return {
+            "model": self.config.snapshot()["model"],
+            "cache": {
+                "size": len(self._cache),
+                "max_size": self.settings.cache_max_entries,
+            },
+            "counts": dict(self._counts),
+            "uptime_seconds": int(time.monotonic() - self._started),
+        }
+
+    def _cache_key(self, text: str, config: dict) -> str:
         payload = {
             "text": text,
-            "model": self.settings.fish_model,
-            "voice_id": self.settings.fish_voice_id,
-            "speed": 1.2,
-            "volume": 5,
-            "sample_rate": 44100,
-            "bitrate": 128,
-            "format": "mp3",
+            "voice_id": self.config.voice_id,
+            "settings": config,
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
-    def _cache_get(self, key: str) -> bytes | None:
+    def _cache_get(self, key: str) -> tuple[bytes, str] | None:
         entry = self._cache.get(key)
         if entry is None:
             return None
-        created_at, audio = entry
+        created_at, audio, media_type = entry
         if time.monotonic() - created_at > self.settings.cache_ttl_seconds:
             self._cache.pop(key, None)
             return None
         self._cache.move_to_end(key)
-        return audio
+        return audio, media_type
 
-    def _cache_set(self, key: str, audio: bytes) -> None:
-        self._cache[key] = (time.monotonic(), audio)
+    def _cache_set(self, key: str, audio: bytes, media_type: str) -> None:
+        self._cache[key] = (time.monotonic(), audio, media_type)
         self._cache.move_to_end(key)
         while len(self._cache) > self.settings.cache_max_entries:
             self._cache.popitem(last=False)
 
-    async def synthesize(self, text: str) -> tuple[bytes, str]:
-        key = self._cache_key(text)
+    async def synthesize(self, text: str) -> tuple[bytes, str, str]:
+        config = self.config.snapshot()
+        key = self._cache_key(text, config)
         cached = self._cache_get(key)
         if cached is not None:
-            return cached, "HIT"
+            self.record_event("cache_hit", text=text)
+            return cached[0], "HIT", cached[1]
 
         existing = self._inflight.get(key)
         if existing is not None:
-            return await asyncio.shield(existing), "HIT"
+            self.record_event("cache_hit", text=text, coalesced=True)
+            audio, media_type = await asyncio.shield(existing)
+            return audio, "HIT", media_type
 
         if self._pending >= self.settings.max_pending:
             raise SpeechError(429, "La cola de síntesis está llena")
 
         loop = asyncio.get_running_loop()
-        future: asyncio.Future[bytes] = loop.create_future()
+        future: asyncio.Future[tuple[bytes, str]] = loop.create_future()
         self._inflight[key] = future
         self._pending += 1
         try:
             async with self._semaphore:
-                audio = await self._request_fish(text)
-            self._cache_set(key, audio)
+                audio = await self._request_fish(text, config)
+            media_type = media_type_for(config["format"])
+            self._cache_set(key, audio, media_type)
             if not future.done():
-                future.set_result(audio)
-            return audio, "MISS"
+                future.set_result((audio, media_type))
+            return audio, "MISS", media_type
         except Exception as exc:
             if not future.done():
                 future.set_exception(exc)
@@ -126,36 +161,36 @@ class SpeechService:
             self._pending -= 1
             self._inflight.pop(key, None)
 
-    async def _request_fish(self, text: str) -> bytes:
-        if not self.settings.fish_api_key or not self.settings.fish_voice_id:
+    async def _request_fish(self, text: str, config: dict) -> bytes:
+        if not self.settings.fish_api_key or not self.config.voice_id:
             raise SpeechError(503, "Fish Audio no está configurado")
 
         payload = {
             "text": text,
-            "reference_id": self.settings.fish_voice_id,
-            "format": "mp3",
-            "sample_rate": 44100,
-            "mp3_bitrate": 128,
-            "latency": "normal",
-            "normalize": False,
+            "reference_id": self.config.voice_id,
+            "format": config["format"],
+            "sample_rate": config["sample_rate"],
+            "mp3_bitrate": config["mp3_bitrate"],
+            "latency": config["latency"],
+            "normalize": config["normalize"],
             "prosody": {
-                "speed": 1.2,
-                "volume": 5,
-                "normalize_loudness": False,
+                "speed": config["prosody_speed"],
+                "volume": config["prosody_volume"],
+                "normalize_loudness": config["prosody_normalize_loudness"],
             },
-            "temperature": 0.65,
-            "top_p": 0.65,
-            "repetition_penalty": 1.25,
-            "chunk_length": 240,
-            "min_chunk_length": 80,
-            "condition_on_previous_chunks": True,
-            "max_new_tokens": 1024,
-            "early_stop_threshold": 1.0,
+            "temperature": config["temperature"],
+            "top_p": config["top_p"],
+            "repetition_penalty": config["repetition_penalty"],
+            "chunk_length": config["chunk_length"],
+            "min_chunk_length": config["min_chunk_length"],
+            "condition_on_previous_chunks": config["condition_on_previous_chunks"],
+            "max_new_tokens": config["max_new_tokens"],
+            "early_stop_threshold": config["early_stop_threshold"],
         }
         headers = {
             "Authorization": f"Bearer {self.settings.fish_api_key}",
             "Content-Type": "application/json",
-            "model": self.settings.fish_model,
+            "model": config["model"],
         }
         last_error = "Fish Audio no respondió"
         for attempt in range(3):

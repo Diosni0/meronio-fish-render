@@ -13,6 +13,8 @@ services:
         sync: false
       - key: WIDGET_TOKEN
         sync: false
+      - key: ADMIN_TOKEN
+        sync: false
       - key: FISH_MODEL
         value: s2.1-pro-free
       - key: ALLOWED_CHANNEL
