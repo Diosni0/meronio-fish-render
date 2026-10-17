@@ -78,6 +78,25 @@ Para fijar un modelo de forma permanente, configura `FISH_MODEL` en Render.
 texto: `[susurrando]`, `[risa]`, `[pausa]`, o etiquetas como
 `<emphasis>importante</emphasis>`. No requiere cambios en el widget.
 
+## Evitar audio duplicado
+
+El servidor deduplica cada evento por rol (`stream` y `preview`) y por dos
+claves: el `_id` de StreamElements y la firma de contenido. Si dos fuentes de
+OBS reciben el mismo cheer, solo una recibe el audio; la otra obtiene `409` y no
+reproduce nada.
+
+- La fuente de OBS debe usar `?role=stream` si el widget no detecta OBS
+  automáticamente. Una vista previa en navegador debe usar `?role=preview`.
+- Deja **una sola** fuente de navegador con el overlay en OBS. No dupliques el
+  Custom Widget en otra fuente ni lo tengas también en Cloud OBS.
+- En OBS, revisa las propiedades de audio de la fuente: usa *Control audio via
+  OBS* y evita *Monitor and Output* si también capturas el audio de escritorio,
+  porque eso puede sumar la misma señal dos veces.
+- El dashboard muestra `Streams` y `Duplicados`. Si `Streams` es mayor que 1,
+  hay varias instancias de directo conectadas: elimina la sobrante.
+- El backend antiguo de GCP está detenido y deshabilitado. Retira también su
+  overlay de OBS/StreamElements para no dejar una fuente muerta.
+
 ## Pegar el Custom Widget
 
 1. Sustituye en `widget.html` los valores `REEMPLAZA_CON_TU_URL_DE_RENDER` y `REEMPLAZA_CON_TU_WIDGET_TOKEN`.
@@ -126,8 +145,8 @@ pytest -q
 - `GET /api/settings`: ajustes actuales y modelos disponibles.
 - `POST /api/settings`: guarda ajustes (requiere `X-Admin-Token`).
 - `POST /api/settings/reset`: restaura los valores por defecto (requiere `X-Admin-Token`).
-- `GET /api/stats`: contadores de caché, mensajes y tiempo activo.
-- `GET /api/events?limit=N`: últimos eventos para el monitor.
+- `GET /api/stats`: contadores de caché, mensajes, instancias activas y tiempo activo.
+- `GET /api/events?limit=N`: últimos eventos para el monitor (incluye duplicados y rol).
 - `POST /api/v1/speech`: devuelve el audio y requiere `X-Widget-Token`.
 - `POST /api/v1/lifecycle`: informa del estado live/offline y requiere `X-Widget-Token`.
 - `GET /images/*`: fotografías del overlay.

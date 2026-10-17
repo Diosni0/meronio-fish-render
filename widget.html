@@ -171,6 +171,16 @@ const instanceId = (() => {
     return value;
   } catch { return Math.random().toString(36).slice(2); }
 })();
+const role = (() => {
+  try {
+    const explicit = (new URLSearchParams(location.search).get("role") || "").trim().toLowerCase();
+    if (explicit) return explicit.slice(0, 20);
+    if (typeof window.obsstudio !== "undefined") return "stream";
+    const ua = navigator.userAgent || "";
+    if (ua.includes("OBS/") || ua.includes("obs-browser")) return "stream";
+    return "preview";
+  } catch { return "preview"; }
+})();
 const hanPattern = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 let liveState = false;
 let keepWarmTimer = null;
@@ -303,7 +313,7 @@ async function requestAudio(item) {
       const response = await fetch(`${CONFIG.apiUrl}/api/v1/speech`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Widget-Token": CONFIG.widgetToken, "X-Widget-Instance": instanceId },
-        body: JSON.stringify({ text: item.text, username: item.username, amount: item.amount, event_id: item.eventId, channel: CONFIG.channel, test: Boolean(item.test) }),
+        body: JSON.stringify({ text: item.text, username: item.username, amount: item.amount, event_id: item.eventId, channel: CONFIG.channel, role, instance_id: instanceId, test: Boolean(item.test) }),
         signal: controller.signal
       });
       if (!response.ok) {
@@ -431,7 +441,7 @@ function setLiveState(value) {
   fetch(`${CONFIG.apiUrl}/api/v1/lifecycle`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Widget-Token": CONFIG.widgetToken },
-    body: JSON.stringify({ live: liveState })
+    body: JSON.stringify({ live: liveState, role, instance_id: instanceId })
   }).catch(() => {});
   if (liveState && !keepWarmTimer) {
     keepWarmTimer = setInterval(() => {
@@ -492,7 +502,7 @@ function runTest(text = "Este es un mensaje de prueba. Si me ves y me oyes, el b
 
 window.meronoTest = runTest;
 unlockAudio();
-isEditorPreview().then(editor => log(`Widget v${CONFIG.version} - ${editor ? "Modo editor (sin audio)" : "Modo directo"}`));
+isEditorPreview().then(editor => log(`Widget v${CONFIG.version} — rol=${role} instancia=${String(instanceId).slice(0, 8)} — ${editor ? "Modo editor (sin audio)" : "Modo directo"}`));
 window.addEventListener("onEventReceived", async event => {
   const editor = await isEditorPreview();
   if (!editor) markActivity();

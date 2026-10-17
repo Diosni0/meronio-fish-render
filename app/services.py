@@ -32,6 +32,7 @@ class SpeechService:
         self._semaphore = asyncio.Semaphore(settings.max_concurrency)
         self._events: deque[dict] = deque(maxlen=100)
         self._counts: dict[str, int] = {}
+        self._instances: dict[str, dict] = {}
         self._started = time.monotonic()
 
     def check_rate_limit(self) -> None:
@@ -46,27 +47,48 @@ class SpeechService:
         if channel.strip().lower() != self.settings.allowed_channel:
             raise SpeechError(403, "Canal no permitido")
 
-    def reserve_event(self, event_id: str, instance_id: str = "") -> bool:
-        if not event_id:
+    def reserve_event(self, keys: str | list[str], instance_id: str = "") -> bool:
+        if isinstance(keys, str):
+            keys = [keys]
+        keys = [key for key in keys if key]
+        if not keys:
             return False
         self._prune_events()
-        existing = self._seen_events.get(event_id)
-        if existing is not None:
-            self._seen_events.move_to_end(event_id)
+        now = time.monotonic()
+        if any(key in self._seen_events for key in keys):
+            for key in keys:
+                if key in self._seen_events:
+                    self._seen_events.move_to_end(key)
             return False
-        self._seen_events[event_id] = (time.monotonic(), instance_id)
-        self._seen_events.move_to_end(event_id)
+        for key in keys:
+            self._seen_events[key] = (now, instance_id)
+            self._seen_events.move_to_end(key)
         return True
 
-    def release_event(self, event_id: str, instance_id: str = "") -> None:
-        if not event_id:
+    def release_event(self, keys: str | list[str], instance_id: str = "") -> None:
+        if isinstance(keys, str):
+            keys = [keys]
+        for key in keys:
+            existing = self._seen_events.get(key)
+            if existing is None:
+                continue
+            _, owner = existing
+            if not instance_id or owner == instance_id:
+                self._seen_events.pop(key, None)
+
+    def touch_instance(self, instance_id: str, role: str, state: str = "") -> None:
+        if not instance_id:
             return
-        existing = self._seen_events.get(event_id)
-        if existing is None:
-            return
-        _, owner = existing
-        if not instance_id or owner == instance_id:
-            self._seen_events.pop(event_id, None)
+        now = time.monotonic()
+        self._instances[instance_id] = {
+            "role": role or "unknown",
+            "state": state,
+            "seen": now,
+        }
+        if len(self._instances) > 200:
+            cutoff = now - 600
+            for key in [key for key, value in self._instances.items() if value["seen"] < cutoff]:
+                self._instances.pop(key, None)
 
     def _prune_events(self) -> None:
         cutoff = time.monotonic() - 300
@@ -89,14 +111,22 @@ class SpeechService:
         return list(self._events)[-limit:]
 
     def stats(self) -> dict:
+        now = time.monotonic()
+        cutoff = now - 600
+        active = [value for value in self._instances.values() if value["seen"] >= cutoff]
         return {
             "model": self.config.snapshot()["model"],
             "cache": {
                 "size": len(self._cache),
                 "max_size": self.settings.cache_max_entries,
             },
+            "instances": {
+                "stream": sum(1 for value in active if value["role"] == "stream"),
+                "preview": sum(1 for value in active if value["role"] == "preview"),
+                "total": len(active),
+            },
             "counts": dict(self._counts),
-            "uptime_seconds": int(time.monotonic() - self._started),
+            "uptime_seconds": int(now - self._started),
         }
 
     def _cache_key(self, text: str, config: dict) -> str:

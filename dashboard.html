@@ -98,10 +98,13 @@
   .model-hint.show{display:block}
   .model-hint code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;color:var(--accent-2);background:rgba(168,85,247,.12);padding:1px 5px;border-radius:4px}
 
-  .stat-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+  .stat-row{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px}
   .stat-box{background:var(--soft);border:1px solid var(--line-soft);border-radius:10px;padding:11px 12px;text-align:center;min-width:0}
   .stat-box .num{font-size:18px;font-weight:650;color:var(--accent-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stat-box .num.warn{color:var(--red)}
   .stat-box .lbl{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px;margin-top:3px}
+  .alert{display:none;margin-bottom:12px;padding:9px 12px;border-radius:8px;font-size:12px;line-height:1.45;background:rgba(239,68,68,.09);border:1px solid rgba(239,68,68,.22);color:#fca5a5}
+  .alert.show{display:block}
   .table-wrap{overflow:auto;max-height:230px;border-radius:8px}
   .event-table{width:100%;border-collapse:collapse;font-size:11px;min-width:560px}
   .event-table th{text-align:left;color:var(--dim);font-weight:500;padding:5px 8px;border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.6px;font-size:9px;position:sticky;top:0;background:var(--card)}
@@ -111,6 +114,7 @@
   .event-badge.speech{background:rgba(96,165,250,.14);color:var(--blue)}
   .event-badge.cache_hit{background:rgba(52,211,153,.14);color:var(--teal)}
   .event-badge.error{background:rgba(239,68,68,.14);color:var(--red)}
+  .event-badge.duplicate{background:rgba(239,68,68,.14);color:var(--red)}
   .event-badge.lifecycle{background:rgba(251,191,36,.14);color:var(--amber)}
   .event-time{color:var(--dim);font-size:10px;white-space:nowrap}
 
@@ -204,12 +208,14 @@
 
     <div class="card full">
       <div class="card-header"><span class="icon">◉</span><h2>Monitor</h2></div>
+      <div class="alert" id="instance-alert"></div>
       <div class="stat-row">
         <div class="stat-box"><div class="num" id="stat-model">-</div><div class="lbl">Modelo</div></div>
         <div class="stat-box"><div class="num" id="stat-cache">-</div><div class="lbl">Caché</div></div>
         <div class="stat-box"><div class="num" id="stat-messages">-</div><div class="lbl">Mensajes</div></div>
         <div class="stat-box"><div class="num" id="stat-hits">-</div><div class="lbl">Cache hits</div></div>
-        <div class="stat-box"><div class="num" id="stat-uptime">-</div><div class="lbl">Activo</div></div>
+        <div class="stat-box"><div class="num" id="stat-streams">-</div><div class="lbl">Streams</div></div>
+        <div class="stat-box"><div class="num" id="stat-duplicates">-</div><div class="lbl">Duplicados</div></div>
       </div>
       <div class="table-wrap">
         <table class="event-table">
@@ -410,7 +416,17 @@ async function loadMonitor() {
     $('stat-cache').textContent = stats.cache.size + '/' + stats.cache.max_size;
     $('stat-messages').textContent = stats.counts.speech || 0;
     $('stat-hits').textContent = stats.counts.cache_hit || 0;
-    $('stat-uptime').textContent = formatUptime(stats.uptime_seconds);
+    const streams = stats.instances ? stats.instances.stream : 0;
+    $('stat-streams').textContent = streams;
+    $('stat-streams').classList.toggle('warn', streams > 1);
+    $('stat-duplicates').textContent = stats.counts.duplicate || 0;
+    const alert = $('instance-alert');
+    if (streams > 1) {
+      alert.textContent = 'Hay ' + streams + ' instancias de stream activas. Solo una reproducirá el TTS; revisa las fuentes de OBS/Cloud OBS y deja una sola.';
+      alert.classList.add('show');
+    } else {
+      alert.classList.remove('show');
+    }
   } catch {}
   try {
     const events = await api('/api/events?limit=8');
@@ -423,6 +439,8 @@ async function loadMonitor() {
       const type = event.event_type || 'speech';
       const data = event.data || {};
       let detail = data.text || data.state || (data.status ? 'HTTP ' + data.status : '');
+      const tags = [data.role, data.instance ? String(data.instance).slice(0, 8) : ''].filter(Boolean);
+      if (tags.length) detail += (detail ? ' · ' : '') + tags.join(' · ');
       if (data.cache) detail += ' · ' + data.cache;
       return '<tr><td><span class="event-badge ' + escapeHtml(type) + '">' + escapeHtml(type.replace('_', ' ')) + '</span></td>' +
         '<td>' + escapeHtml(data.username || '-') + '</td>' +
@@ -430,16 +448,6 @@ async function loadMonitor() {
         '<td class="event-time">' + escapeHtml((event.iso_time || '').slice(11, 19)) + '</td></tr>';
     }).join('');
   } catch {}
-}
-
-function formatUptime(seconds) {
-  seconds = Number(seconds) || 0;
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (days) return days + 'd ' + hours + 'h';
-  if (hours) return hours + 'h ' + minutes + 'm';
-  return minutes + 'm';
 }
 
 function escapeHtml(value) {

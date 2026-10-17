@@ -34,11 +34,15 @@ class SpeechPayload(BaseModel):
     amount: int = Field(default=0, ge=0, le=100000000)
     event_id: str = Field(default="", max_length=200)
     channel: str = Field(default="", max_length=100)
+    role: str = Field(default="", max_length=20)
+    instance_id: str = Field(default="", max_length=80)
     test: bool = False
 
 
 class LifecyclePayload(BaseModel):
     live: bool
+    role: str = Field(default="", max_length=20)
+    instance_id: str = Field(default="", max_length=80)
 
 
 @asynccontextmanager
@@ -76,6 +80,21 @@ def _service(request: Request) -> SpeechService:
 
 def _config(request: Request) -> SpeechConfigStore:
     return request.app.state.config
+
+
+def _detect_role(request: Request, explicit: str = "") -> str:
+    """Separa la reproducción del directo (stream) de una vista previa.
+
+    El widget envía su rol detectado. Si no llega, se infiere del User-Agent de
+    OBS y, en caso contrario, se asume preview. La dedup del servidor usa el rol:
+    solo una instancia de cada rol reproduce cada evento.
+    """
+    if explicit:
+        return explicit.strip().lower()[:20]
+    user_agent = request.headers.get("user-agent", "")
+    if "OBS/" in user_agent or "obs-browser" in user_agent:
+        return "stream"
+    return "preview"
 
 
 def _authenticate(token: str | None) -> None:
@@ -194,27 +213,56 @@ async def speech(
 ) -> Response:
     _authenticate(x_widget_token)
     service = _service(request)
-    instance = (x_widget_instance or "unknown")[:12]
+    instance = (payload.instance_id or x_widget_instance or "unknown")[:80]
+    role = _detect_role(request, payload.role)
+    service.touch_instance(instance, role)
     event_reserved = False
+    dedup_keys: list[str] = []
     try:
         service.check_rate_limit()
         service.check_channel(payload.channel)
-        event_reserved = service.reserve_event(payload.event_id, x_widget_instance)
         text = normalize_text(payload.text, settings.max_text_length, settings.channel_emote_prefix)
         username = clean_username(payload.username)
         if not text:
             text = fallback_text(username, payload.amount)
+
+        # Dos claves por evento: el id de StreamElements y la firma de contenido.
+        # Así dos instancias que reciben el mismo cheer (o una reentrega de SE con
+        # otro id) no reproducen el audio dos veces. El rol separa stream/preview.
+        if payload.event_id.strip():
+            dedup_keys.append(f"{role}:id:{payload.event_id.strip()}")
+        dedup_keys.append(f"{role}:c:{username}:{payload.amount}:{text}")
+        event_reserved = service.reserve_event(dedup_keys, instance)
+        if not event_reserved:
+            service.record_event(
+                "duplicate",
+                role=role,
+                instance=instance,
+                username=username,
+                text=text[:200],
+                amount=payload.amount,
+            )
+            logger.info(
+                "speech 409 duplicate role=%s instance=%s event=%s",
+                role, instance, payload.event_id or "-",
+            )
+            raise SpeechError(409, "Evento duplicado")
+
         audio, cache_status, media_type = await service.synthesize(text)
     except SpeechError as error:
-        if event_reserved and payload.event_id:
-            service.release_event(payload.event_id, x_widget_instance)
-        service.record_event("error", status=error.status_code, instance=instance)
-        logger.warning("speech %s instance=%s event=%s", error.status_code, instance, payload.event_id or "-")
+        if event_reserved and dedup_keys:
+            service.release_event(dedup_keys, instance)
+        if error.status_code != 409:
+            service.record_event("error", status=error.status_code, instance=instance, role=role)
+        logger.warning(
+            "speech %s role=%s instance=%s event=%s",
+            error.status_code, role, instance, payload.event_id or "-",
+        )
         raise _payload_error(error) from error
     except Exception:
-        if event_reserved and payload.event_id:
-            service.release_event(payload.event_id, x_widget_instance)
-        service.record_event("error", status=500, instance=instance)
+        if event_reserved and dedup_keys:
+            service.release_event(dedup_keys, instance)
+        service.record_event("error", status=500, instance=instance, role=role)
         logger.exception("Unexpected synthesis error instance=%s", instance)
         raise HTTPException(status_code=500, detail="Error interno de síntesis") from None
     service.record_event(
@@ -223,25 +271,37 @@ async def speech(
         text=text[:200],
         amount=payload.amount,
         instance=instance,
+        role=role,
         cache=cache_status,
     )
-    logger.info("speech 200 instance=%s event=%s cache=%s bytes=%s", instance, payload.event_id or "-", cache_status, len(audio))
+    logger.info(
+        "speech 200 role=%s instance=%s event=%s cache=%s bytes=%s",
+        role, instance, payload.event_id or "-", cache_status, len(audio),
+    )
     return Response(
         content=audio,
         media_type=media_type,
         headers={
             "X-Cache": cache_status,
             "X-Audio-Bytes": str(len(audio)),
-            "X-Widget-Instance": x_widget_instance,
+            "X-Widget-Instance": instance,
             "Cache-Control": "no-store",
         },
     )
 
 
 @app.post("/api/v1/lifecycle")
-def lifecycle(payload: LifecyclePayload, request: Request, x_widget_token: str | None = Header(default=None)) -> dict[str, str]:
+def lifecycle(
+    payload: LifecyclePayload,
+    request: Request,
+    x_widget_token: str | None = Header(default=None),
+) -> dict[str, str]:
     _authenticate(x_widget_token)
     state = "live" if payload.live else "offline"
-    _service(request).record_event("lifecycle", state=state)
-    logger.info("Widget lifecycle=%s", state)
+    instance = (payload.instance_id or "unknown")[:80]
+    role = _detect_role(request, payload.role)
+    service = _service(request)
+    service.touch_instance(instance, role, state)
+    service.record_event("lifecycle", state=state, instance=instance, role=role)
+    logger.info("Widget lifecycle=%s role=%s instance=%s", state, role, instance)
     return {"status": state}

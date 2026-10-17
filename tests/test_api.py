@@ -4,6 +4,25 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.config import Settings
+from app.services import SpeechService
+
+
+async def fake_synthesize(self, text):
+    return b"audio", "MISS", "audio/mpeg"
+
+
+def speech_payload(**overrides):
+    payload = {
+        "text": "hola",
+        "username": "user",
+        "amount": 100,
+        "event_id": "evt-1",
+        "channel": "alimentacionchino",
+        "role": "stream",
+        "instance_id": "instance-a",
+    }
+    payload.update(overrides)
+    return payload
 
 
 def make_client(tmp_path, monkeypatch) -> TestClient:
@@ -48,3 +67,45 @@ def test_invalid_settings_are_rejected(tmp_path, monkeypatch) -> None:
             headers={"X-Admin-Token": "admin"},
         )
         assert response.status_code == 400
+
+
+def test_second_stream_instance_gets_409(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(SpeechService, "synthesize", fake_synthesize)
+    headers = {"X-Widget-Token": "widget"}
+    with make_client(tmp_path, monkeypatch) as client:
+        first = client.post("/api/v1/speech", json=speech_payload(), headers=headers)
+        second = client.post(
+            "/api/v1/speech",
+            json=speech_payload(instance_id="instance-b"),
+            headers=headers,
+        )
+        preview = client.post(
+            "/api/v1/speech",
+            json=speech_payload(role="preview", instance_id="instance-c"),
+            headers=headers,
+        )
+        assert first.status_code == 200
+        assert second.status_code == 409
+        assert preview.status_code == 200
+        stats = client.get("/api/stats").json()
+        assert stats["instances"]["stream"] == 2
+        assert stats["instances"]["preview"] == 1
+        assert stats["counts"]["duplicate"] == 1
+
+
+def test_content_dedup_without_event_id(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(SpeechService, "synthesize", fake_synthesize)
+    headers = {"X-Widget-Token": "widget"}
+    with make_client(tmp_path, monkeypatch) as client:
+        first = client.post(
+            "/api/v1/speech",
+            json=speech_payload(event_id="", instance_id="instance-a"),
+            headers=headers,
+        )
+        second = client.post(
+            "/api/v1/speech",
+            json=speech_payload(event_id="", instance_id="instance-b"),
+            headers=headers,
+        )
+        assert first.status_code == 200
+        assert second.status_code == 409
