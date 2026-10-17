@@ -46,6 +46,13 @@ class LifecyclePayload(BaseModel):
     instance_id: str = Field(default="", max_length=80)
 
 
+class PlaybackPayload(BaseModel):
+    instance_id: str = Field(default="", max_length=80)
+    role: str = Field(default="", max_length=20)
+    event_id: str = Field(default="", max_length=200)
+    duration_ms: int = Field(default=0, ge=0, le=600000)
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     application.state.http = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0))
@@ -214,6 +221,38 @@ def get_stats(request: Request) -> dict:
 @app.get("/api/events")
 def get_events(request: Request, limit: int = 20) -> list[dict]:
     return _service(request).events(limit)
+
+
+@app.post("/api/v1/playback/acquire")
+def acquire_playback(
+    payload: PlaybackPayload,
+    request: Request,
+    x_widget_token: str | None = Header(default=None),
+) -> dict:
+    _authenticate(x_widget_token)
+    role = _detect_role(request, payload.role)
+    instance = (payload.instance_id or "unknown")[:80]
+    granted, wait_ms = _service(request).acquire_playback(
+        role, instance, payload.event_id, payload.duration_ms
+    )
+    return {
+        "granted": granted,
+        "retry_after_ms": 0 if granted else wait_ms,
+        "role": role,
+    }
+
+
+@app.post("/api/v1/playback/release")
+def release_playback(
+    payload: PlaybackPayload,
+    request: Request,
+    x_widget_token: str | None = Header(default=None),
+) -> dict[str, str]:
+    _authenticate(x_widget_token)
+    role = _detect_role(request, payload.role)
+    instance = (payload.instance_id or "unknown")[:80]
+    _service(request).release_playback(role, instance, payload.event_id)
+    return {"status": "ok"}
 
 
 @app.post("/api/v1/speech")

@@ -110,3 +110,37 @@ def test_content_dedup_without_event_id(tmp_path, monkeypatch) -> None:
         )
         assert first.status_code == 200
         assert second.status_code == 409
+
+
+def test_playback_lock_api_serializes_instances(tmp_path, monkeypatch) -> None:
+    headers = {"X-Widget-Token": "widget"}
+    with make_client(tmp_path, monkeypatch) as client:
+        acquire = "/api/v1/playback/acquire"
+        release = "/api/v1/playback/release"
+        first = client.post(
+            acquire,
+            json={"instance_id": "a", "role": "stream", "event_id": "e1", "duration_ms": 10000},
+            headers=headers,
+        )
+        second = client.post(
+            acquire,
+            json={"instance_id": "b", "role": "stream", "event_id": "e2", "duration_ms": 10000},
+            headers=headers,
+        )
+        assert first.status_code == 200
+        assert first.json()["granted"] is True
+        assert second.status_code == 200
+        assert second.json()["granted"] is False
+        assert second.json()["retry_after_ms"] > 0
+
+        client.post(
+            release,
+            json={"instance_id": "a", "role": "stream", "event_id": "e1"},
+            headers=headers,
+        )
+        third = client.post(
+            acquire,
+            json={"instance_id": "b", "role": "stream", "event_id": "e2", "duration_ms": 10000},
+            headers=headers,
+        )
+        assert third.json()["granted"] is True

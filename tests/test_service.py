@@ -58,3 +58,30 @@ def test_touch_instance_reports_active_roles() -> None:
     stats = service.stats()
     assert stats["instances"]["stream"] == 2
     assert stats["instances"]["preview"] == 1
+
+
+def test_playback_lock_serializes_stream_instances() -> None:
+    service = make_service()
+    granted, _ = service.acquire_playback("stream", "instance-a", "event-1", 10000)
+    assert granted is True
+    granted, wait_ms = service.acquire_playback("stream", "instance-b", "event-2", 10000)
+    assert granted is False
+    assert wait_ms > 0
+    service.release_playback("stream", "instance-a", "event-1")
+    granted, _ = service.acquire_playback("stream", "instance-b", "event-2", 10000)
+    assert granted is True
+
+
+def test_playback_lock_separates_stream_and_preview() -> None:
+    service = make_service()
+    assert service.acquire_playback("stream", "instance-a", "event-1", 10000)[0] is True
+    assert service.acquire_playback("preview", "instance-b", "event-1", 10000)[0] is True
+
+
+def test_playback_lock_only_releases_for_owner() -> None:
+    service = make_service()
+    assert service.acquire_playback("stream", "instance-a", "event-1", 10000)[0] is True
+    service.release_playback("stream", "instance-b", "event-1")
+    assert service.acquire_playback("stream", "instance-b", "event-2", 10000)[0] is False
+    service.release_playback("stream", "instance-a", "event-1")
+    assert service.acquire_playback("stream", "instance-b", "event-2", 10000)[0] is True

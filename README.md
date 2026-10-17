@@ -83,7 +83,9 @@ texto: `[susurrando]`, `[risa]`, `[pausa]`, o etiquetas como
 El servidor deduplica cada evento por rol (`stream` y `preview`) y por dos
 claves: el `_id` de StreamElements y la firma de contenido. Si dos fuentes de
 OBS reciben el mismo cheer, solo una recibe el audio; la otra obtiene `409` y no
-reproduce nada.
+reproduce nada. Además, la reproducción tiene un turno global por rol: si dos
+instancias tienen un audio listo a la vez, la segunda espera a que la primera
+termine, así dos cheers seguidos nunca se solapan.
 
 - La fuente de OBS debe usar `?role=stream` si el widget no detecta OBS
   automáticamente. Una vista previa en navegador debe usar `?role=preview`.

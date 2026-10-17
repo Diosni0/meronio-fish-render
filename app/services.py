@@ -33,6 +33,7 @@ class SpeechService:
         self._events: deque[dict] = deque(maxlen=100)
         self._counts: dict[str, int] = {}
         self._instances: dict[str, dict] = {}
+        self._playback_locks: dict[str, dict] = {}
         self._started = time.monotonic()
 
     def check_rate_limit(self) -> None:
@@ -89,6 +90,31 @@ class SpeechService:
             cutoff = now - 600
             for key in [key for key, value in self._instances.items() if value["seen"] < cutoff]:
                 self._instances.pop(key, None)
+
+    def acquire_playback(self, role: str, instance_id: str, event_id: str, duration_ms: int) -> tuple[bool, int]:
+        key = role or "stream"
+        now = time.monotonic()
+        lock = self._playback_locks.get(key)
+        if lock and lock["expires"] > now and lock["owner"] != instance_id:
+            return False, int((lock["expires"] - now) * 1000) + 250
+        duration = max(5.0, min((max(duration_ms, 0) / 1000.0) + 2.0, 180.0))
+        self._playback_locks[key] = {
+            "owner": instance_id,
+            "event_id": event_id,
+            "expires": now + duration,
+        }
+        return True, int(duration * 1000)
+
+    def release_playback(self, role: str, instance_id: str, event_id: str = "") -> None:
+        key = role or "stream"
+        lock = self._playback_locks.get(key)
+        if lock is None:
+            return
+        if lock["owner"] != instance_id:
+            return
+        if event_id and lock["event_id"] and lock["event_id"] != event_id:
+            return
+        self._playback_locks.pop(key, None)
 
     def _prune_events(self) -> None:
         cutoff = time.monotonic() - 300

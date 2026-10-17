@@ -116,7 +116,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
 <div class="status" id="status">Meroño TTS</div>
 <script>
 const CONFIG = Object.freeze({
-  version: "2.3.0-activity-warm",
+  version: "2.4.0-queue-lock",
   apiUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   widgetToken: "REEMPLAZA_CON_TU_WIDGET_TOKEN",
   channel: "alimentacionchino",
@@ -346,10 +346,71 @@ async function requestAudio(item) {
   throw new Error("No se pudo sintetizar");
 }
 
-function playAudio(blob, item) {
+function waitForAudioReady(audio, timeoutMs = 5000) {
   return new Promise(resolve => {
-    const url = URL.createObjectURL(blob);
-    const audio = audioEl || new Audio();
+    if (audio.readyState >= 1) { resolve(); return; }
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      audio.onloadedmetadata = null;
+      audio.onerror = null;
+      resolve();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    audio.onloadedmetadata = finish;
+    audio.onerror = finish;
+    audio.load();
+  });
+}
+
+async function acquirePlayback(item, durationMs) {
+  const deadline = Date.now() + 90000;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${CONFIG.apiUrl}/api/v1/playback/acquire`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Widget-Token": CONFIG.widgetToken },
+        body: JSON.stringify({ instance_id: instanceId, role, event_id: item.eventId, duration_ms: durationMs })
+      });
+      if (response.status === 404) return true;
+      if (response.status === 401 || response.status === 403) return false;
+      if (!response.ok) { await wait(1000); continue; }
+      const body = await response.json();
+      if (body.granted) return true;
+      await wait(Math.max(250, Math.min(Number(body.retry_after_ms) || 500, 5000)));
+    } catch { await wait(1000); }
+  }
+  return false;
+}
+
+function releasePlayback(item) {
+  fetch(`${CONFIG.apiUrl}/api/v1/playback/release`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Widget-Token": CONFIG.widgetToken },
+    body: JSON.stringify({ instance_id: instanceId, role, event_id: item.eventId })
+  }).catch(() => {});
+}
+
+async function playAudio(blob, item) {
+  const url = URL.createObjectURL(blob);
+  const audio = audioEl || new Audio();
+  audio.preload = "auto";
+  audio.volume = 1;
+  audio.src = url;
+  await waitForAudioReady(audio);
+  const durationMs = Number.isFinite(audio.duration) && audio.duration > 0
+    ? Math.ceil(audio.duration * 1000)
+    : estimatedMs(item.text);
+  const granted = await acquirePlayback(item, durationMs);
+  if (!granted) {
+    try { audio.pause(); } catch {}
+    try { audio.removeAttribute("src"); audio.load(); } catch {}
+    URL.revokeObjectURL(url);
+    return "busy";
+  }
+  return new Promise(resolve => {
     const expectedMs = estimatedMs(item.text);
     let settled = false;
     let safetyTimer = setTimeout(() => finish("timeout"), Math.max(expectedMs + 8000, 180000));
@@ -361,12 +422,11 @@ function playAudio(blob, item) {
       try { audio.removeAttribute("src"); audio.load(); } catch {}
       if (currentAudio === audio) currentAudio = null;
       URL.revokeObjectURL(url);
+      releasePlayback(item);
       if (reason) log(`Audio terminado (${reason}): ${item.username}`);
       resolve(reason || "");
     };
     currentAudio = audio;
-    audio.preload = "auto";
-    audio.volume = 1;
     audio.onended = () => finish("");
     audio.onerror = () => { log(`Audio inválido: ${item.username}`); finish("error"); };
     audio.onplaying = () => {
@@ -378,8 +438,6 @@ function playAudio(blob, item) {
     const resume = audioContext ? audioContext.resume() : Promise.resolve();
     resume.catch(() => {}).finally(() => {
       try {
-        audio.src = url;
-        audio.load();
         const played = audio.play();
         if (played && typeof played.then === "function") {
           played.then(() => showBubble(item, "speaking"))
@@ -411,7 +469,9 @@ async function processQueue() {
     try {
       const audio = await requestAudio(item);
       const reason = await playAudio(audio, item);
-      if (reason) {
+      if (reason === "busy") {
+        log(`Turno de reproducción ocupado; se omite: ${item.username}`);
+      } else if (reason) {
         showBubble({ ...item, text: `No se pudo reproducir: ${item.text}` }, "error");
         await wait(estimatedMs(item.text));
       }
