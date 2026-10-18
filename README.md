@@ -102,7 +102,8 @@ con marcas `@nombre@`:
   marcas y se usa la voz única.
 - Cada personaje se sintetiza por separado con su propio `reference_id`; el
   widget reproduce los clips en orden. Así la voz de cada personaje no depende
-  de índices de multi-hablante y funciona con cualquier combinación.
+  de índices de multi-hablante y funciona con cualquier combinación. Requiere
+  el widget `2.9.0` o superior.
 - Los nombres de los personajes no se muestran en la burbuja.
 - Si solo habla un personaje, su foto aparece como avatar principal. Si hablan
   varios, el avatar principal es Meroño cuando participa; si no participa, es
