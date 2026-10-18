@@ -1,5 +1,4 @@
 import hmac
-import inspect
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -16,7 +15,7 @@ from .config import Settings
 from .dialogue import strip_dialogue_tags
 from .services import SpeechError, SpeechService
 from .synth import MODELS, SpeechConfigStore
-from .text import clean_username, fallback_text, normalize_text, repair_mojibake
+from .text import clean_username, fallback_text, normalize_text
 
 logging.basicConfig(
     level=logging.INFO,
@@ -231,23 +230,6 @@ def get_stats(request: Request) -> dict:
 @app.get("/api/events")
 def get_events(request: Request, limit: int = 20) -> list[dict]:
     return _service(request).events(limit)
-
-
-@app.get("/api/debug/repair")
-def debug_repair(
-    request: Request,
-    x_widget_token: str | None = Header(default=None),
-) -> dict:
-    _authenticate(x_widget_token)
-    sample = "meroÃ±ito @meroÃ±o@"
-    output = repair_mojibake(sample)
-    return {
-        "input_codepoints": [hex(ord(ch)) for ch in sample],
-        "output": output,
-        "output_codepoints": [hex(ord(ch)) for ch in output],
-        "normalized": normalize_text(sample, 100, settings.channel_emote_prefix),
-        "source": inspect.getsource(repair_mojibake),
-    }
 
 
 @app.post("/api/v1/playback/acquire")
