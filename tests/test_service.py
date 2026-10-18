@@ -121,5 +121,40 @@ def test_dialogue_payload_uses_reference_id_array() -> None:
             await service.synthesize("@meroño@ hola @supin@ hey")
 
     asyncio.run(run())
-    assert captured["payload"]["reference_id"] == ["v1", "v2", "v3"]
+    assert captured["payload"]["reference_id"] == ["v1", "v2"]
     assert captured["payload"]["text"] == "<|speaker:0|>hola <|speaker:1|>hey"
+
+
+def test_single_colombiana_sends_single_reference_id() -> None:
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(200, content=b"audio")
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            settings = SimpleNamespace(
+                max_concurrency=1,
+                max_pending=2,
+                requests_per_minute=10,
+                allowed_channel="alimentacionchino",
+                fish_model="drama-3",
+                fish_voice_id="v1",
+                fish_api_key="key",
+                cache_ttl_seconds=60,
+                cache_max_entries=2,
+            )
+            config = SpeechConfigStore(
+                default_model="drama-3",
+                voice_id="v1",
+                voice_merono="v1",
+                voice_supin="v2",
+                voice_colombiana="v3",
+            )
+            service = SpeechService(client, settings, config)
+            await service.synthesize("@colombiana@ hola")
+
+    asyncio.run(run())
+    assert captured["payload"]["reference_id"] == "v3"
+    assert captured["payload"]["text"] == "hola"
