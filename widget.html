@@ -292,7 +292,7 @@ function parseEvent(raw) {
   if (amount < CONFIG.minBits) return null;
   const eventId = String(raw._id || data._id || "");
   const finalText = text || fallback(username, amount);
-  const displayText = stripVoiceLabels(finalText) || finalText;
+  const displayText = stripVoiceLabels(finalText) || fallback(username, amount);
   return { eventId, username, amount, text: finalText, displayText, keys: eventKeys({ eventId, username, amount, text: finalText }) };
 }
 
