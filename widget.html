@@ -144,7 +144,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
 <div class="status" id="status">Meroño TTS</div>
 <script>
 const CONFIG = Object.freeze({
-  version: "2.6.1-avatars",
+  version: "2.7.0-speaker-tags",
   apiUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   widgetToken: "REEMPLAZA_CON_TU_WIDGET_TOKEN",
   channel: "alimentacionchino",
@@ -293,8 +293,8 @@ function cleanText(value) {
   return String(value || "").replace(/^\s*!tts\b/i, "").replace(/\bcheer\s*\d+\b/gi, "").replace(/\s+/g, " ").trim().slice(0, CONFIG.maxTextLength);
 }
 
-function stripVoiceLabels(value) {
-  return String(value || "").replace(/\b(meroño|merono|supin|colombiana)\s*:/gi, " ").replace(/\s+/g, " ").trim();
+function stripVoiceTags(value) {
+  return String(value || "").replace(/@\s*(meroño|merono|supin|colombiana)\s*@/gi, " ").replace(/\s+/g, " ").trim();
 }
 
 function capitalizeName(name) {
@@ -304,7 +304,7 @@ function capitalizeName(name) {
 
 function extractSpeakers(value) {
   const found = [];
-  const pattern = /\b(meroño|merono|supin|colombiana)\s*:/gi;
+  const pattern = /@\s*(meroño|merono|supin|colombiana)\s*@/gi;
   let match;
   while ((match = pattern.exec(String(value || "")))) {
     let name = match[1].toLowerCase();
@@ -389,7 +389,7 @@ function parseEvent(raw) {
   if (amount < CONFIG.minBits) return null;
   const eventId = String(raw._id || data._id || "");
   const finalText = text || fallback(username, amount);
-  const displayText = stripVoiceLabels(finalText) || fallback(username, amount);
+  const displayText = stripVoiceTags(finalText) || fallback(username, amount);
   return { eventId, username, amount, text: finalText, displayText, keys: eventKeys({ eventId, username, amount, text: finalText }) };
 }
 

@@ -84,19 +84,21 @@ texto: `[susurrando]`, `[risa]`, `[pausa]`, o etiquetas como
 ### Diálogo con varias voces
 
 Con `drama-3` o cualquier modelo de la familia S2, el chat puede cambiar de voz
-escribiendo el nombre del personaje seguido de dos puntos:
+con marcas `@nombre@`:
 
 ```text
-meroño: hola, soy la voz de siempre supin: yo soy supin colombiana: hola mi amor
+@meroño@ hola, soy la voz de siempre @supin@ yo soy supin @colombiana@ hola mi amor
 ```
 
-- Sin etiquetas se usa `FISH_VOICE_ID` (comportamiento actual).
-- Con etiquetas se usa `reference_id` en array y las voces
+- Sin marcas se usa `FISH_VOICE_ID` (comportamiento actual).
+- `@meroño@`, `@supin@` y `@colombiana@` cambian el hablante hasta la siguiente
+  marca; no hay etiqueta de cierre y pueden ir en medio de la frase.
+- Con marcas se usa `reference_id` en array y las voces
   `FISH_VOICE_MERONO` (o `FISH_VOICE_ID` si está vacía), `FISH_VOICE_SUPIN` y
   `FISH_VOICE_COLOMBIANA`.
-- Se acepta `meroño` y `merono`, sin distinguir mayúsculas.
+- Se acepta `@meroño@` y `@merono@`, sin distinguir mayúsculas.
 - Si falta alguna voz o el modelo no soporta multi-hablante, se eliminan las
-  etiquetas y se usa la voz única.
+  marcas y se usa la voz única.
 - Los nombres de los personajes no se muestran en la burbuja.
 - Si solo habla un personaje, su foto aparece como avatar principal. Si hablan
   varios, el avatar principal es Meroño cuando participa; si no participa, es

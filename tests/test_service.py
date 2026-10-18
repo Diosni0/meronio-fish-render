@@ -118,7 +118,7 @@ def test_dialogue_payload_uses_reference_id_array() -> None:
                 voice_colombiana="v3",
             )
             service = SpeechService(client, settings, config)
-            await service.synthesize("meroño: hola supin: hey")
+            await service.synthesize("@meroño@ hola @supin@ hey")
 
     asyncio.run(run())
     assert captured["payload"]["reference_id"] == ["v1", "v2", "v3"]

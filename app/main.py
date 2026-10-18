@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from starlette.staticfiles import StaticFiles
 
 from .config import Settings
-from .dialogue import strip_dialogue_labels
+from .dialogue import strip_dialogue_tags
 from .services import SpeechError, SpeechService
 from .synth import MODELS, SpeechConfigStore
 from .text import clean_username, fallback_text, normalize_text
@@ -283,7 +283,7 @@ async def speech(
         service.check_channel(payload.channel)
         text = normalize_text(payload.text, settings.max_text_length, settings.channel_emote_prefix)
         username = clean_username(payload.username)
-        if not text or not strip_dialogue_labels(text):
+        if not text or not strip_dialogue_tags(text):
             text = fallback_text(username, payload.amount)
 
         # Dos claves por evento: el id de StreamElements y la firma de contenido.

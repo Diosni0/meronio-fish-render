@@ -9,27 +9,28 @@ CHARACTER_INDEX = {
     "colombiana": 2,
 }
 
-LABEL_PATTERN = re.compile(r"(?i)\b(meroño|merono|supin|colombiana)\s*:")
+TAG_PATTERN = re.compile(r"@\s*(meroño|merono|supin|colombiana)\s*@", re.IGNORECASE)
 WHITESPACE = re.compile(r"\s+")
 
 
-def has_dialogue_labels(text: str) -> bool:
-    return bool(LABEL_PATTERN.search(text or ""))
+def has_dialogue_tags(text: str) -> bool:
+    return bool(TAG_PATTERN.search(text or ""))
 
 
-def strip_dialogue_labels(text: str) -> str:
-    return WHITESPACE.sub(" ", LABEL_PATTERN.sub("", text or "")).strip()
+def strip_dialogue_tags(text: str) -> str:
+    return WHITESPACE.sub(" ", TAG_PATTERN.sub("", text or "")).strip()
 
 
 def prepare_dialogue(text: str, voices: dict, model: str) -> tuple[str, list[str] | None]:
-    """Convierte `nombre: texto` en diálogo multi-hablante de Fish Audio.
+    """Convierte `@nombre@` en diálogo multi-hablante de Fish Audio.
 
-    Sin etiquetas devuelve el texto intacto y `None` (voz única actual). Si hay
-    etiquetas y el modelo lo soporta, devuelve el texto con `<|speaker:N|>` y el
-    array de reference_id en el orden meroño, supin, colombiana.
+    Sin marcas devuelve el texto intacto y `None` (voz única actual). Cada
+    `@nombre@` cambia el hablante hasta la siguiente marca; no hay etiqueta de
+    cierre. Si el modelo no lo soporta o faltan voces, se eliminan las marcas y
+    se usa la voz única.
     """
     text = (text or "").strip()
-    if not has_dialogue_labels(text):
+    if not has_dialogue_tags(text):
         return text, None
 
     ordered = [
@@ -38,24 +39,24 @@ def prepare_dialogue(text: str, voices: dict, model: str) -> tuple[str, list[str
         voices.get("colombiana", ""),
     ]
     if model not in MULTI_SPEAKER_MODELS or not all(ordered):
-        return strip_dialogue_labels(text), None
+        return strip_dialogue_tags(text), None
 
-    parts = LABEL_PATTERN.split(text)
     segments: list[tuple[int, str]] = []
+    current_speaker = 0
+    position = 0
+    for match in TAG_PATTERN.finditer(text):
+        content = text[position:match.start()].strip()
+        if content:
+            segments.append((current_speaker, content))
+        current_speaker = CHARACTER_INDEX[match.group(1).lower()]
+        position = match.end()
 
-    leading = parts[0].strip()
-    if leading:
-        segments.append((0, leading))
-
-    for index in range(1, len(parts) - 1, 2):
-        name = parts[index].lower()
-        content = parts[index + 1].strip()
-        if not content:
-            continue
-        segments.append((CHARACTER_INDEX[name], content))
+    tail = text[position:].strip()
+    if tail:
+        segments.append((current_speaker, tail))
 
     if not segments:
-        return strip_dialogue_labels(text), None
+        return strip_dialogue_tags(text), None
 
     merged: list[tuple[int, str]] = []
     for speaker, content in segments:
