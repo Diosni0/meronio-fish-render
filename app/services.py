@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import time
 from collections import OrderedDict, deque
@@ -6,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from .dialogue import prepare_dialogue
+from .dialogue import parse_turns, prepare_dialogue
 from .synth import SpeechConfigStore, media_type_for
 
 
@@ -159,9 +160,16 @@ class SpeechService:
             "uptime_seconds": int(now - self._started),
         }
 
-    def _cache_key(self, text: str, config: dict, reference: str | list[str] | None = None) -> str:
+    def _cache_key(
+        self,
+        text: str,
+        config: dict,
+        reference: str | list[str] | None = None,
+        mode: str = "audio",
+    ) -> str:
         payload = {
             "text": text,
+            "mode": mode,
             "voice_id": self.config.voice_id,
             "voices": self.config.voices(),
             "reference": reference,
@@ -186,10 +194,14 @@ class SpeechService:
         while len(self._cache) > self.settings.cache_max_entries:
             self._cache.popitem(last=False)
 
-    async def synthesize(self, text: str) -> tuple[bytes, str, str]:
+    async def synthesize(self, text: str, supports_clips: bool = False) -> tuple[bytes, str, str]:
         config = self.config.snapshot()
-        tts_text, reference = prepare_dialogue(text, self.config.voices(), config["model"])
-        key = self._cache_key(tts_text, config, reference)
+        turns = parse_turns(text, self.config.voices()) if supports_clips else None
+        if turns:
+            key = self._cache_key(text, config, None, mode="clips")
+        else:
+            tts_text, reference = prepare_dialogue(text, self.config.voices(), config["model"])
+            key = self._cache_key(tts_text, config, reference, mode="audio")
         cached = self._cache_get(key)
         if cached is not None:
             self.record_event("cache_hit", text=text)
@@ -210,8 +222,11 @@ class SpeechService:
         self._pending += 1
         try:
             async with self._semaphore:
-                audio = await self._request_fish(tts_text, config, reference)
-            media_type = media_type_for(config["format"])
+                if turns:
+                    audio, media_type = await self._render_clips(turns, config)
+                else:
+                    audio = await self._request_fish(tts_text, config, reference)
+                    media_type = media_type_for(config["format"])
             self._cache_set(key, audio, media_type)
             if not future.done():
                 future.set_result((audio, media_type))
@@ -223,6 +238,23 @@ class SpeechService:
         finally:
             self._pending -= 1
             self._inflight.pop(key, None)
+
+    async def _render_clips(self, turns: list[tuple[str, str]], config: dict) -> tuple[bytes, str]:
+        voices = self.config.voices()
+        clips = []
+        for speaker, content in turns:
+            voice = voices.get(speaker) or self.config.voice_id
+            audio = await self._request_fish(content, config, voice)
+            clips.append({
+                "speaker": speaker,
+                "audio": base64.b64encode(audio).decode("ascii"),
+                "media_type": media_type_for(config["format"]),
+            })
+        payload = json.dumps(
+            {"type": "dialogue", "clips": clips, "gap_ms": 250},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        return payload, "application/json"
 
     async def _request_fish(self, text: str, config: dict, reference: str | list[str] | None = None) -> bytes:
         if not self.settings.fish_api_key or not self.config.voice_id:

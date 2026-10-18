@@ -51,6 +51,7 @@ class SpeechPayload(BaseModel):
     channel: str = Field(default="", max_length=100)
     role: str = Field(default="", max_length=20)
     instance_id: str = Field(default="", max_length=80)
+    supports_clips: bool = False
     test: bool = False
 
 
@@ -321,7 +322,10 @@ async def speech(
             )
             raise SpeechError(409, "Evento duplicado")
 
-        audio, cache_status, media_type = await service.synthesize(text)
+        audio, cache_status, media_type = await service.synthesize(
+            text,
+            supports_clips=payload.supports_clips,
+        )
     except SpeechError as error:
         if event_reserved and dedup_keys:
             service.release_event(dedup_keys, instance)

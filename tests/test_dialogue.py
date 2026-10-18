@@ -1,4 +1,4 @@
-from app.dialogue import prepare_dialogue, strip_dialogue_tags
+from app.dialogue import parse_turns, prepare_dialogue, strip_dialogue_tags
 from app.text import repair_mojibake
 
 VOICES = {
@@ -135,3 +135,32 @@ def test_unknown_tags_are_left_as_text() -> None:
     text, reference = prepare_dialogue("@pepe@ hola", VOICES, "drama-3")
     assert text == "@pepe@ hola"
     assert reference is None
+
+
+def test_parse_turns_returns_each_character_in_order() -> None:
+    turns = parse_turns("@supin@ hola @colombiana@ hey @meroño@ adios", VOICES)
+    assert turns == [
+        ("supin", "hola"),
+        ("colombiana", "hey"),
+        ("meroño", "adios"),
+    ]
+
+
+def test_parse_turns_merges_adjacent_same_character() -> None:
+    turns = parse_turns("@supin@ hola @supin@ otra vez", VOICES)
+    assert turns == [("supin", "hola otra vez")]
+
+
+def test_parse_turns_without_tags_is_none() -> None:
+    assert parse_turns("hola", VOICES) is None
+
+
+def test_parse_turns_missing_voice_is_none() -> None:
+    assert parse_turns(
+        "@supin@ hola @colombiana@ hey",
+        {"meroño": "v1", "supin": "v2", "colombiana": ""},
+    ) is None
+
+
+def test_parse_turns_accepts_optional_closing_at() -> None:
+    assert parse_turns("@colombiana hola", VOICES) == [("colombiana", "hola")]

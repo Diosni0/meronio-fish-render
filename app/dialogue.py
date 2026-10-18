@@ -18,6 +18,55 @@ def strip_dialogue_tags(text: str) -> str:
     return WHITESPACE.sub(" ", TAG_PATTERN.sub("", text or "")).strip()
 
 
+def _segments(text: str) -> list[tuple[str, str]]:
+    raw: list[tuple[str, str]] = []
+    current_name = "meroño"
+    position = 0
+    for match in TAG_PATTERN.finditer(text):
+        content = text[position:match.start()].strip()
+        if content:
+            raw.append((current_name, content))
+        name = (match.group(1) or match.group(2)).lower()
+        if name == "merono":
+            name = "meroño"
+        current_name = name
+        position = match.end()
+
+    tail = text[position:].strip()
+    if tail:
+        raw.append((current_name, tail))
+    return raw
+
+
+def _merge(segments: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    merged: list[tuple[str, str]] = []
+    for name, content in segments:
+        if merged and merged[-1][0] == name:
+            merged[-1] = (name, merged[-1][1] + " " + content)
+        else:
+            merged.append((name, content))
+    return merged
+
+
+def parse_turns(text: str, voices: dict) -> list[tuple[str, str]] | None:
+    """Devuelve los turnos por personaje, sin depender de índices de Fish.
+
+    `None` si no hay marcas o si falta la voz de algún personaje. Cada turno se
+    sintetiza después con su `reference_id` individual, así cualquier
+    combinación usa siempre la voz correcta.
+    """
+    text = (text or "").strip()
+    if not has_dialogue_tags(text):
+        return None
+    segments = _segments(text)
+    if not segments:
+        return None
+    for name, _ in segments:
+        if not voices.get(name):
+            return None
+    return _merge(segments)
+
+
 def prepare_dialogue(text: str, voices: dict, model: str) -> tuple[str, list[str] | str | None]:
     """Convierte `@nombre@` en diálogo multi-hablante de Fish Audio.
 
@@ -30,23 +79,7 @@ def prepare_dialogue(text: str, voices: dict, model: str) -> tuple[str, list[str
     if not has_dialogue_tags(text):
         return text, None
 
-    raw_segments: list[tuple[str, str]] = []
-    current_name = "meroño"
-    position = 0
-    for match in TAG_PATTERN.finditer(text):
-        content = text[position:match.start()].strip()
-        if content:
-            raw_segments.append((current_name, content))
-        name = (match.group(1) or match.group(2)).lower()
-        if name == "merono":
-            name = "meroño"
-        current_name = name
-        position = match.end()
-
-    tail = text[position:].strip()
-    if tail:
-        raw_segments.append((current_name, tail))
-
+    raw_segments = _segments(text)
     if not raw_segments:
         return strip_dialogue_tags(text), None
 
@@ -69,13 +102,7 @@ def prepare_dialogue(text: str, voices: dict, model: str) -> tuple[str, list[str
         return strip_dialogue_tags(text), None
 
     index_by_name = {name: index for index, name in enumerate(used_names)}
-    merged: list[tuple[str, str]] = []
-    for name, content in raw_segments:
-        if merged and merged[-1][0] == name:
-            merged[-1] = (name, merged[-1][1] + " " + content)
-        else:
-            merged.append((name, content))
-
+    merged = _merge(raw_segments)
     dialogue = " ".join(
         f"<|speaker:{index_by_name[name]}|>{content}" for name, content in merged
     )

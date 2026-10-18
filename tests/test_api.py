@@ -7,7 +7,7 @@ from app.config import Settings
 from app.services import SpeechService
 
 
-async def fake_synthesize(self, text):
+async def fake_synthesize(self, text, supports_clips=False):
     return b"audio", "MISS", "audio/mpeg"
 
 

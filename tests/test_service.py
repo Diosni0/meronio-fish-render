@@ -158,3 +158,45 @@ def test_single_colombiana_sends_single_reference_id() -> None:
     asyncio.run(run())
     assert captured["payload"]["reference_id"] == "v3"
     assert captured["payload"]["text"] == "hola"
+
+
+def test_clips_mode_uses_each_character_reference_id() -> None:
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, content=b"audio")
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            settings = SimpleNamespace(
+                max_concurrency=1,
+                max_pending=2,
+                requests_per_minute=10,
+                allowed_channel="alimentacionchino",
+                fish_model="drama-3",
+                fish_voice_id="v1",
+                fish_api_key="key",
+                cache_ttl_seconds=60,
+                cache_max_entries=2,
+            )
+            config = SpeechConfigStore(
+                default_model="drama-3",
+                voice_id="v1",
+                voice_merono="v1",
+                voice_supin="v2",
+                voice_colombiana="v3",
+            )
+            service = SpeechService(client, settings, config)
+            return await service.synthesize(
+                "@supin@ hola @colombiana@ hey",
+                supports_clips=True,
+            )
+
+    audio, status, media_type = asyncio.run(run())
+    assert status == "MISS"
+    assert media_type == "application/json"
+    payload = json.loads(audio)
+    assert [clip["speaker"] for clip in payload["clips"]] == ["supin", "colombiana"]
+    assert [request["reference_id"] for request in requests] == ["v2", "v3"]
+    assert [request["text"] for request in requests] == ["hola", "hey"]

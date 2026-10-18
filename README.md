@@ -100,6 +100,9 @@ con marcas `@nombre@`:
 - Se acepta `@meroño@` y `@merono@`, sin distinguir mayúsculas.
 - Si falta alguna voz o el modelo no soporta multi-hablante, se eliminan las
   marcas y se usa la voz única.
+- Cada personaje se sintetiza por separado con su propio `reference_id`; el
+  widget reproduce los clips en orden. Así la voz de cada personaje no depende
+  de índices de multi-hablante y funciona con cualquier combinación.
 - Los nombres de los personajes no se muestran en la burbuja.
 - Si solo habla un personaje, su foto aparece como avatar principal. Si hablan
   varios, el avatar principal es Meroño cuando participa; si no participa, es

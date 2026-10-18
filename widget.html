@@ -144,7 +144,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
 <div class="status" id="status">Meroño TTS</div>
 <script>
 const CONFIG = Object.freeze({
-  version: "2.8.0-encoding",
+  version: "2.9.0-clips",
   apiUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   widgetToken: "REEMPLAZA_CON_TU_WIDGET_TOKEN",
   channel: "alimentacionchino",
@@ -443,7 +443,7 @@ async function requestAudio(item) {
       const response = await fetch(`${CONFIG.apiUrl}/api/v1/speech`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Widget-Token": CONFIG.widgetToken, "X-Widget-Instance": instanceId },
-        body: JSON.stringify({ text: item.text, username: item.username, amount: item.amount, event_id: item.eventId, channel: CONFIG.channel, role, instance_id: instanceId, test: Boolean(item.test) }),
+        body: JSON.stringify({ text: item.text, username: item.username, amount: item.amount, event_id: item.eventId, channel: CONFIG.channel, role, instance_id: instanceId, supports_clips: true, test: Boolean(item.test) }),
         signal: controller.signal
       });
       if (!response.ok) {
@@ -460,10 +460,19 @@ async function requestAudio(item) {
         failure.retryable = false;
         throw failure;
       }
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const dialogue = await response.json();
+        if (!dialogue || !Array.isArray(dialogue.clips) || !dialogue.clips.length) {
+          throw new Error("Diálogo vacío");
+        }
+        statRequests++;
+        return { dialogue };
+      }
       const audio = await response.blob();
       if (audio.size < 100) throw new Error("Audio vacío");
       statRequests++;
-      return audio;
+      return { audio };
     } catch (error) {
       if ((error && error.retryable === false) || attempt === CONFIG.maxRetries) throw error;
       await wait(CONFIG.retryBaseMs * (2 ** attempt));
@@ -579,6 +588,101 @@ async function playAudio(blob, item) {
   });
 }
 
+function base64ToBlob(base64, type) {
+  const binary = atob(String(base64 || ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: type || "audio/mpeg" });
+}
+
+function loadAudioUrl(url) {
+  return new Promise(resolve => {
+    const audio = new Audio();
+    audio.preload = "metadata";
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(Number.isFinite(audio.duration) && audio.duration > 0 ? Math.ceil(audio.duration * 1000) : 0);
+    };
+    const timer = setTimeout(finish, 5000);
+    audio.onloadedmetadata = finish;
+    audio.onerror = finish;
+    audio.src = url;
+    audio.load();
+  });
+}
+
+function playClip(url, durationMs, item) {
+  return new Promise(resolve => {
+    const audio = audioEl || new Audio();
+    audio.preload = "auto";
+    audio.volume = 1;
+    audio.src = url;
+    let settled = false;
+    const safetyMs = Math.max((durationMs || estimatedMs(item.text)) + 8000, 5000);
+    const safetyTimer = setTimeout(() => finish("timeout"), safetyMs);
+    const finish = reason => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(safetyTimer);
+      try { audio.pause(); } catch {}
+      try { audio.removeAttribute("src"); audio.load(); } catch {}
+      if (currentAudio === audio) currentAudio = null;
+      resolve(reason || "");
+    };
+    currentAudio = audio;
+    audio.onended = () => finish("");
+    audio.onerror = () => finish("error");
+    const resume = audioContext ? audioContext.resume() : Promise.resolve();
+    resume.catch(() => {}).finally(() => {
+      try {
+        audio.load();
+        const played = audio.play();
+        if (played && typeof played.then === "function") {
+          played.catch(error => { log(`Audio bloqueado: ${error.message}`); finish("blocked"); });
+        }
+      } catch (error) {
+        log(`Audio bloqueado: ${error.message}`);
+        finish("blocked");
+      }
+    });
+  });
+}
+
+async function playDialogue(dialogue, item) {
+  const clips = [];
+  try {
+    for (const clip of dialogue.clips) {
+      const blob = base64ToBlob(clip.audio, clip.media_type);
+      clips.push({ url: URL.createObjectURL(blob), durationMs: 0 });
+    }
+    for (const clip of clips) {
+      clip.durationMs = await loadAudioUrl(clip.url);
+    }
+    const gap = Math.max(0, Number(dialogue.gap_ms) || 0);
+    const fallbackMs = Math.ceil(estimatedMs(item.text) / Math.max(1, clips.length));
+    const totalMs = clips.reduce((sum, clip) => sum + (clip.durationMs || fallbackMs), 0) + gap * Math.max(0, clips.length - 1);
+    const granted = await acquirePlayback(item, totalMs);
+    if (!granted) return "busy";
+    showBubble(item, "speaking");
+    let reason = "";
+    try {
+      for (let index = 0; index < clips.length; index++) {
+        reason = await playClip(clips[index].url, clips[index].durationMs, item);
+        if (reason) break;
+        if (index < clips.length - 1 && gap) await wait(gap);
+      }
+    } finally {
+      releasePlayback(item);
+    }
+    return reason;
+  } finally {
+    clips.forEach(clip => URL.revokeObjectURL(clip.url));
+  }
+}
+
 async function processQueue() {
   if (processing) return;
   processing = true;
@@ -593,8 +697,10 @@ async function processQueue() {
       continue;
     }
     try {
-      const audio = await requestAudio(item);
-      const reason = await playAudio(audio, item);
+      const result = await requestAudio(item);
+      const reason = result.dialogue
+        ? await playDialogue(result.dialogue, item)
+        : await playAudio(result.audio, item);
       if (reason === "busy") {
         log(`Turno de reproducción ocupado; se omite: ${item.username}`);
       } else if (reason) {
