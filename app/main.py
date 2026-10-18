@@ -30,7 +30,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DASHBOARD_PATH = BASE_DIR / "dashboard.html"
 WIDGET_PATH = BASE_DIR / "widget.html"
 
-_MOJIBAKE_PAIR = re.compile(r"[ÃƒÃ‚][\x80-\xBF]")
+_MOJIBAKE_PAIR = re.compile(r"[ÃÂ][\x80-\xBF]")
 
 
 def _repair_text(value: str) -> str:
@@ -45,7 +45,7 @@ def _repair_text(value: str) -> str:
 
 class SpeechPayload(BaseModel):
     text: str = Field(default="", max_length=2000)
-    username: str = Field(default="AnÃ³nimo", max_length=100)
+    username: str = Field(default="Anónimo", max_length=100)
     amount: int = Field(default=0, ge=0, le=100000000)
     event_id: str = Field(default="", max_length=200)
     channel: str = Field(default="", max_length=100)
@@ -87,7 +87,7 @@ async def lifespan(application: FastAPI):
     await application.state.http.aclose()
 
 
-app = FastAPI(title="MeroÃ±o TTS", version="2.2.0", lifespan=lifespan)
+app = FastAPI(title="Meroño TTS", version="2.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.origins),
@@ -108,9 +108,9 @@ def _config(request: Request) -> SpeechConfigStore:
 
 
 def _detect_role(request: Request, explicit: str = "") -> str:
-    """Separa la reproducciÃ³n del directo (stream) de una vista previa.
+    """Separa la reproducción del directo (stream) de una vista previa.
 
-    El widget envÃ­a su rol detectado. Si no llega, se infiere del User-Agent de
+    El widget envía su rol detectado. Si no llega, se infiere del User-Agent de
     OBS y, en caso contrario, se asume preview. La dedup del servidor usa el rol:
     solo una instancia de cada rol reproduce cada evento.
     """
@@ -300,7 +300,7 @@ async def speech(
             text = fallback_text(username, payload.amount)
 
         # Dos claves por evento: el id de StreamElements y la firma de contenido.
-        # AsÃ­ dos instancias que reciben el mismo cheer (o una reentrega de SE con
+        # Así dos instancias que reciben el mismo cheer (o una reentrega de SE con
         # otro id) no reproducen el audio dos veces. El rol separa stream/preview.
         if payload.event_id.strip():
             dedup_keys.append(f"{role}:id:{payload.event_id.strip()}")
@@ -337,7 +337,7 @@ async def speech(
             service.release_event(dedup_keys, instance)
         service.record_event("error", status=500, instance=instance, role=role)
         logger.exception("Unexpected synthesis error instance=%s", instance)
-        raise HTTPException(status_code=500, detail="Error interno de sÃ­ntesis") from None
+        raise HTTPException(status_code=500, detail="Error interno de síntesis") from None
     service.record_event(
         "speech",
         username=username,
@@ -378,4 +378,3 @@ def lifecycle(
     service.record_event("lifecycle", state=state, instance=instance, role=role)
     logger.info("Widget lifecycle=%s role=%s instance=%s", state, role, instance)
     return {"status": state}
-
