@@ -1,5 +1,6 @@
 import hmac
 import logging
+import re
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,6 +29,18 @@ settings = Settings.from_env()
 BASE_DIR = Path(__file__).resolve().parent.parent
 DASHBOARD_PATH = BASE_DIR / "dashboard.html"
 WIDGET_PATH = BASE_DIR / "widget.html"
+
+_MOJIBAKE_PAIR = re.compile(r"[ÃÂ][\x80-\xBF]")
+
+
+def _repair_text(value: str) -> str:
+    def fix(match: re.Match) -> str:
+        try:
+            return match.group(0).encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            return match.group(0)
+
+    return _MOJIBAKE_PAIR.sub(fix, value or "")
 
 
 class SpeechPayload(BaseModel):
@@ -281,8 +294,8 @@ async def speech(
     try:
         service.check_rate_limit()
         service.check_channel(payload.channel)
-        text = normalize_text(payload.text, settings.max_text_length, settings.channel_emote_prefix)
-        username = clean_username(payload.username)
+        text = normalize_text(_repair_text(payload.text), settings.max_text_length, settings.channel_emote_prefix)
+        username = clean_username(_repair_text(payload.username))
         if not text or not strip_dialogue_tags(text):
             text = fallback_text(username, payload.amount)
 
