@@ -116,7 +116,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
 <div class="status" id="status">Meroño TTS</div>
 <script>
 const CONFIG = Object.freeze({
-  version: "2.4.0-queue-lock",
+  version: "2.5.0-dialogue",
   apiUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   widgetToken: "REEMPLAZA_CON_TU_WIDGET_TOKEN",
   channel: "alimentacionchino",
@@ -258,6 +258,10 @@ function cleanText(value) {
   return String(value || "").replace(/^\s*!tts\b/i, "").replace(/\bcheer\s*\d+\b/gi, "").replace(/\s+/g, " ").trim().slice(0, CONFIG.maxTextLength);
 }
 
+function stripVoiceLabels(value) {
+  return String(value || "").replace(/\b(meroño|merono|supin|colombiana)\s*:/gi, " ").replace(/\s+/g, " ").trim();
+}
+
 function eventKeys(event) {
   const id = event.eventId ? `id:${event.eventId}` : `content:${event.username}:${event.amount}:${event.text}`;
   return [id, `content:${event.username}:${event.amount}:${event.text}`];
@@ -287,14 +291,16 @@ function parseEvent(raw) {
   const text = cleanText(data.message || raw.message || raw.text || "");
   if (amount < CONFIG.minBits) return null;
   const eventId = String(raw._id || data._id || "");
-  return { eventId, username, amount, text: text || fallback(username, amount), keys: eventKeys({ eventId, username, amount, text }) };
+  const finalText = text || fallback(username, amount);
+  const displayText = stripVoiceLabels(finalText) || finalText;
+  return { eventId, username, amount, text: finalText, displayText, keys: eventKeys({ eventId, username, amount, text: finalText }) };
 }
 
 function showBubble(item, state) {
   root.style.position = "fixed";
   root.style.inset = "0";
   usernameEl.textContent = item.username;
-  messageEl.textContent = ellipsize(item.text, CONFIG.maxDisplayChars);
+  messageEl.textContent = ellipsize(item.displayText || item.text, CONFIG.maxDisplayChars);
   bitsEl.textContent = Number(item.amount || 0).toLocaleString("es-ES");
   const chinese = containsChinese(item.text);
   normalEl.classList.toggle("hidden", chinese);
@@ -472,7 +478,7 @@ async function processQueue() {
       if (reason === "busy") {
         log(`Turno de reproducción ocupado; se omite: ${item.username}`);
       } else if (reason) {
-        showBubble({ ...item, text: `No se pudo reproducir: ${item.text}` }, "error");
+        showBubble({ ...item, displayText: `No se pudo reproducir: ${item.displayText || item.text}` }, "error");
         await wait(estimatedMs(item.text));
       }
       hideBubble();
@@ -483,7 +489,7 @@ async function processQueue() {
         hideBubble();
       } else {
         log(`Error: ${error.message}`);
-        showBubble({ ...item, text: `No se pudo reproducir: ${item.text}` }, "error");
+        showBubble({ ...item, displayText: `No se pudo reproducir: ${item.displayText || item.text}` }, "error");
         await wait(2500);
         hideBubble();
         unmarkSeen(item.keys);

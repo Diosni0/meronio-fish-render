@@ -20,6 +20,9 @@ def _list_env(name: str, default: str) -> list[str]:
 class Settings:
     fish_api_key: str
     fish_voice_id: str
+    fish_voice_merono: str
+    fish_voice_supin: str
+    fish_voice_colombiana: str
     fish_model: str
     admin_token: str
     settings_path: str
@@ -45,6 +48,9 @@ class Settings:
         return cls(
             fish_api_key=os.getenv("FISH_API_KEY", "").strip(),
             fish_voice_id=os.getenv("FISH_VOICE_ID", "").strip(),
+            fish_voice_merono=os.getenv("FISH_VOICE_MERONO", "").strip(),
+            fish_voice_supin=os.getenv("FISH_VOICE_SUPIN", "").strip(),
+            fish_voice_colombiana=os.getenv("FISH_VOICE_COLOMBIANA", "").strip(),
             fish_model=os.getenv("FISH_MODEL", "s2.1-pro-free").strip(),
             admin_token=os.getenv("ADMIN_TOKEN", "").strip(),
             settings_path=os.getenv("TTS_SETTINGS_PATH", "settings.json").strip(),

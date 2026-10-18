@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from .dialogue import prepare_dialogue
 from .synth import SpeechConfigStore, media_type_for
 
 
@@ -23,6 +24,9 @@ class SpeechService:
         self.config = config or SpeechConfigStore(
             default_model=settings.fish_model,
             voice_id=settings.fish_voice_id,
+            voice_merono=getattr(settings, "fish_voice_merono", ""),
+            voice_supin=getattr(settings, "fish_voice_supin", ""),
+            voice_colombiana=getattr(settings, "fish_voice_colombiana", ""),
         )
         self._cache: OrderedDict[str, tuple[float, bytes, str]] = OrderedDict()
         self._inflight: dict[str, asyncio.Future[tuple[bytes, str]]] = {}
@@ -155,10 +159,12 @@ class SpeechService:
             "uptime_seconds": int(now - self._started),
         }
 
-    def _cache_key(self, text: str, config: dict) -> str:
+    def _cache_key(self, text: str, config: dict, reference_ids: list[str] | None = None) -> str:
         payload = {
             "text": text,
             "voice_id": self.config.voice_id,
+            "voices": self.config.voices(),
+            "reference_ids": reference_ids or [],
             "settings": config,
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
@@ -182,7 +188,8 @@ class SpeechService:
 
     async def synthesize(self, text: str) -> tuple[bytes, str, str]:
         config = self.config.snapshot()
-        key = self._cache_key(text, config)
+        tts_text, reference_ids = prepare_dialogue(text, self.config.voices(), config["model"])
+        key = self._cache_key(tts_text, config, reference_ids)
         cached = self._cache_get(key)
         if cached is not None:
             self.record_event("cache_hit", text=text)
@@ -203,7 +210,7 @@ class SpeechService:
         self._pending += 1
         try:
             async with self._semaphore:
-                audio = await self._request_fish(text, config)
+                audio = await self._request_fish(tts_text, config, reference_ids)
             media_type = media_type_for(config["format"])
             self._cache_set(key, audio, media_type)
             if not future.done():
@@ -217,13 +224,13 @@ class SpeechService:
             self._pending -= 1
             self._inflight.pop(key, None)
 
-    async def _request_fish(self, text: str, config: dict) -> bytes:
+    async def _request_fish(self, text: str, config: dict, reference_ids: list[str] | None = None) -> bytes:
         if not self.settings.fish_api_key or not self.config.voice_id:
             raise SpeechError(503, "Fish Audio no está configurado")
 
         payload = {
             "text": text,
-            "reference_id": self.config.voice_id,
+            "reference_id": reference_ids or self.config.voice_id,
             "format": config["format"],
             "sample_rate": config["sample_rate"],
             "mp3_bitrate": config["mp3_bitrate"],

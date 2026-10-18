@@ -38,6 +38,9 @@ Variables de configuración:
 | Variable | Valor inicial | Uso |
 |---|---|---|
 | `FISH_MODEL` | `s2.1-pro-free` | Modelo inicial de Fish Audio (`s2.1-pro-free`, `s2.1-pro`, `s2-pro`, `drama-3`) |
+| `FISH_VOICE_MERONO` | vacío | Voz de meroño en diálogo; si está vacío se usa `FISH_VOICE_ID` |
+| `FISH_VOICE_SUPIN` | vacío | Voz de supin en diálogo |
+| `FISH_VOICE_COLOMBIANA` | vacío | Voz de colombiana en diálogo |
 | `ADMIN_TOKEN` | vacío | Protege los cambios del dashboard; si está vacío se usa `WIDGET_TOKEN` |
 | `TTS_SETTINGS_PATH` | `settings.json` | Archivo de ajustes del dashboard (efímero en Render free) |
 | `ALLOWED_CHANNEL` | `alimentacionchino` | Canal único permitido |
@@ -77,6 +80,24 @@ Para fijar un modelo de forma permanente, configura `FISH_MODEL` en Render.
 `drama-3` usa el mismo endpoint y admite direcciones de interpretación en el
 texto: `[susurrando]`, `[risa]`, `[pausa]`, o etiquetas como
 `<emphasis>importante</emphasis>`. No requiere cambios en el widget.
+
+### Diálogo con varias voces
+
+Con `drama-3` o cualquier modelo de la familia S2, el chat puede cambiar de voz
+escribiendo el nombre del personaje seguido de dos puntos:
+
+```text
+meroño: hola, soy la voz de siempre supin: yo soy supin colombiana: hola mi amor
+```
+
+- Sin etiquetas se usa `FISH_VOICE_ID` (comportamiento actual).
+- Con etiquetas se usa `reference_id` en array y las voces
+  `FISH_VOICE_MERONO` (o `FISH_VOICE_ID` si está vacía), `FISH_VOICE_SUPIN` y
+  `FISH_VOICE_COLOMBIANA`.
+- Se acepta `meroño` y `merono`, sin distinguir mayúsculas.
+- Si falta alguna voz o el modelo no soporta multi-hablante, se eliminan las
+  etiquetas y se usa la voz única.
+- Los nombres de los personajes no se muestran en la burbuja.
 
 ## Evitar audio duplicado
 

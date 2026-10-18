@@ -11,6 +11,12 @@ services:
         sync: false
       - key: FISH_VOICE_ID
         sync: false
+      - key: FISH_VOICE_MERONO
+        sync: false
+      - key: FISH_VOICE_SUPIN
+        sync: false
+      - key: FISH_VOICE_COLOMBIANA
+        sync: false
       - key: WIDGET_TOKEN
         sync: false
       - key: ADMIN_TOKEN

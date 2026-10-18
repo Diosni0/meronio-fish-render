@@ -100,9 +100,22 @@ class SpeechConfigStore:
     mientras el disco sea persistente (en Render free el disco es efímero).
     """
 
-    def __init__(self, default_model: str = "", voice_id: str = "", path: str = ""):
+    def __init__(
+        self,
+        default_model: str = "",
+        voice_id: str = "",
+        voice_merono: str = "",
+        voice_supin: str = "",
+        voice_colombiana: str = "",
+        path: str = "",
+    ):
         self._values = dict(DEFAULT_SYNTH)
         self._voice_id = voice_id
+        self._voices = {
+            "meroño": voice_merono or voice_id,
+            "supin": voice_supin,
+            "colombiana": voice_colombiana,
+        }
         self._path = path
         self._default_model = DEFAULT_SYNTH["model"]
         if default_model:
@@ -117,12 +130,19 @@ class SpeechConfigStore:
     def voice_id(self) -> str:
         return self._voice_id
 
+    def voices(self) -> dict:
+        return dict(self._voices)
+
     def snapshot(self) -> dict:
         return dict(self._values)
 
     def fingerprint(self) -> str:
         return json.dumps(
-            {"voice_id": self._voice_id, "settings": self._values},
+            {
+                "voice_id": self._voice_id,
+                "voices": self._voices,
+                "settings": self._values,
+            },
             sort_keys=True,
             ensure_ascii=False,
         )

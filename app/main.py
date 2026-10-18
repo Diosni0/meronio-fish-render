@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from starlette.staticfiles import StaticFiles
 
 from .config import Settings
+from .dialogue import strip_dialogue_labels
 from .services import SpeechError, SpeechService
 from .synth import MODELS, SpeechConfigStore
 from .text import clean_username, fallback_text, normalize_text
@@ -59,6 +60,9 @@ async def lifespan(application: FastAPI):
     application.state.config = SpeechConfigStore(
         default_model=settings.fish_model,
         voice_id=settings.fish_voice_id,
+        voice_merono=settings.fish_voice_merono,
+        voice_supin=settings.fish_voice_supin,
+        voice_colombiana=settings.fish_voice_colombiana,
         path=settings.settings_path,
     )
     application.state.speech = SpeechService(
@@ -129,6 +133,11 @@ def _settings_payload(request: Request) -> dict:
         "settings": _config(request).snapshot(),
         "models": list(MODELS),
         "voice_configured": bool(settings.fish_voice_id),
+        "dialogue_configured": bool(
+            settings.fish_voice_id
+            and settings.fish_voice_supin
+            and settings.fish_voice_colombiana
+        ),
         "admin_required": bool(_admin_token()),
     }
 
@@ -274,7 +283,7 @@ async def speech(
         service.check_channel(payload.channel)
         text = normalize_text(payload.text, settings.max_text_length, settings.channel_emote_prefix)
         username = clean_username(payload.username)
-        if not text:
+        if not text or not strip_dialogue_labels(text):
             text = fallback_text(username, payload.amount)
 
         # Dos claves por evento: el id de StreamElements y la firma de contenido.
