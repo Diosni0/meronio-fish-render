@@ -99,8 +99,9 @@ meroño: hola, soy la voz de siempre supin: yo soy supin colombiana: hola mi amo
   etiquetas y se usa la voz única.
 - Los nombres de los personajes no se muestran en la burbuja.
 - Si solo habla un personaje, su foto aparece como avatar principal. Si hablan
-  varios, el avatar principal sigue siendo Meroño y las fotos de los demás
-  personajes se apilan debajo, a la izquierda del texto.
+  varios, el avatar principal es Meroño cuando participa; si no participa, es
+  el primer personaje que habla. Las fotos de los demás se apilan debajo, a la
+  izquierda del texto.
 
 ## Evitar audio duplicado
 

@@ -144,7 +144,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
 <div class="status" id="status">Meroño TTS</div>
 <script>
 const CONFIG = Object.freeze({
-  version: "2.6.0-avatars",
+  version: "2.6.1-avatars",
   apiUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   widgetToken: "REEMPLAZA_CON_TU_WIDGET_TOKEN",
   channel: "alimentacionchino",
@@ -325,15 +325,23 @@ function selectAvatars(item) {
   const defaultMain = imageUrl(chinese ? "profile_chino.png" : "profile.png");
   const defaultName = chinese ? "Meroño chino" : "Meroño";
 
-  if (speakers.length === 1 && speakers[0] !== "meroño") {
+  if (speakers.length === 0) {
+    return { main: defaultMain, mainName: defaultName, extra: [] };
+  }
+
+  if (speakers.length === 1) {
+    const [name] = speakers;
+    if (name === "meroño") {
+      return { main: defaultMain, mainName: defaultName, extra: [] };
+    }
     return {
-      main: speakerImage(speakers[0]),
-      mainName: capitalizeName(speakers[0]),
+      main: speakerImage(name),
+      mainName: capitalizeName(name),
       extra: [],
     };
   }
 
-  if (speakers.length > 1) {
+  if (speakers.includes("meroño")) {
     return {
       main: defaultMain,
       mainName: defaultName,
@@ -343,7 +351,12 @@ function selectAvatars(item) {
     };
   }
 
-  return { main: defaultMain, mainName: defaultName, extra: [] };
+  const [mainSpeaker, ...rest] = speakers;
+  return {
+    main: speakerImage(mainSpeaker),
+    mainName: capitalizeName(mainSpeaker),
+    extra: rest.map(name => ({ name: capitalizeName(name), src: speakerImage(name) })),
+  };
 }
 
 function eventKeys(event) {
