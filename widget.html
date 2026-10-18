@@ -144,7 +144,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
 <div class="status" id="status">Meroño TTS</div>
 <script>
 const CONFIG = Object.freeze({
-  version: "2.7.0-speaker-tags",
+  version: "2.8.0-encoding",
   apiUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   widgetToken: "REEMPLAZA_CON_TU_WIDGET_TOKEN",
   channel: "alimentacionchino",
@@ -294,7 +294,19 @@ function cleanText(value) {
 }
 
 function stripVoiceTags(value) {
-  return String(value || "").replace(/@\s*(meroño|merono|supin|colombiana)\s*@/gi, " ").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .replace(/@\s*(?:meroño|merono|supin|colombiana)\s*@|@\s*(?:meroño|merono|supin|colombiana)(?![A-Za-z0-9_])/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function repairMojibake(value) {
+  return String(value || "").replace(/[ÃÂ][\x80-\xBF]/g, pair => {
+    try {
+      const bytes = Uint8Array.from(pair, ch => ch.charCodeAt(0) & 0xFF);
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch { return pair; }
+  });
 }
 
 function capitalizeName(name) {
@@ -304,10 +316,10 @@ function capitalizeName(name) {
 
 function extractSpeakers(value) {
   const found = [];
-  const pattern = /@\s*(meroño|merono|supin|colombiana)\s*@/gi;
+  const pattern = /@\s*(meroño|merono|supin|colombiana)\s*@|@\s*(meroño|merono|supin|colombiana)(?![A-Za-z0-9_])/gi;
   let match;
   while ((match = pattern.exec(String(value || "")))) {
-    let name = match[1].toLowerCase();
+    let name = (match[1] || match[2]).toLowerCase();
     if (name === "merono") name = "meroño";
     if (!found.includes(name)) found.push(name);
   }
@@ -383,9 +395,9 @@ function unmarkSeen(keys) {
 function parseEvent(raw) {
   if (!raw || (raw.type !== "cheer" && raw.type !== "bits")) return null;
   const data = raw.data || raw;
-  const username = String(data.displayName || data.name || data.username || raw.user_name || "Anónimo").slice(0, 80);
+  const username = repairMojibake(String(data.displayName || data.name || data.username || raw.user_name || "Anónimo")).slice(0, 80);
   const amount = Number.parseInt(data.amount || raw.amount || raw.bits || 0, 10) || 0;
-  const text = cleanText(data.message || raw.message || raw.text || "");
+  const text = cleanText(repairMojibake(data.message || raw.message || raw.text || ""));
   if (amount < CONFIG.minBits) return null;
   const eventId = String(raw._id || data._id || "");
   const finalText = text || fallback(username, amount);

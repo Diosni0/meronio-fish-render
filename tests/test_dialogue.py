@@ -1,4 +1,5 @@
 from app.dialogue import prepare_dialogue, strip_dialogue_tags
+from app.text import repair_mojibake
 
 VOICES = {
     "meroño": "v1",
@@ -59,6 +60,35 @@ def test_single_colombiana_uses_single_voice() -> None:
     text, reference = prepare_dialogue("@colombiana@ hola", VOICES, "drama-3")
     assert text == "hola"
     assert reference == "v3"
+
+
+def test_single_colombiana_also_works_without_closing_at() -> None:
+    text, reference = prepare_dialogue("@colombiana hola", VOICES, "drama-3")
+    assert text == "hola"
+    assert reference == "v3"
+
+
+def test_multiple_tags_without_closing_at() -> None:
+    text, reference = prepare_dialogue(
+        "@supin hola @colombiana hey",
+        VOICES,
+        "drama-3",
+    )
+    assert reference == ["v2", "v3"]
+    assert text == "<|speaker:0|>hola <|speaker:1|>hey"
+
+
+def test_does_not_match_plural_word() -> None:
+    text, reference = prepare_dialogue("@colombianas hola", VOICES, "drama-3")
+    assert text == "@colombianas hola"
+    assert reference is None
+
+
+def test_mojibake_tag_is_repaired_before_parsing() -> None:
+    text = repair_mojibake("@meroÃ±o@ hola @colombiana@ hey")
+    dialogue, reference = prepare_dialogue(text, VOICES, "drama-3")
+    assert reference == ["v1", "v3"]
+    assert dialogue == "<|speaker:0|>hola <|speaker:1|>hey"
 
 
 def test_single_supin_uses_single_voice_even_on_unsupported_model() -> None:

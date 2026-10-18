@@ -6,6 +6,20 @@ _WHITESPACE = re.compile(r"\s+")
 _CHEER_COMMAND = re.compile(r"^\s*!tts\b", re.IGNORECASE)
 _CHEER_LABEL = re.compile(r"\bcheer\s*\d+\b", re.IGNORECASE)
 _URL = re.compile(r"https?://\S+", re.IGNORECASE)
+_MOJIBAKE_PAIR = re.compile(r"[ÃÂ][\x80-\xBF]")
+
+
+def repair_mojibake(value: str) -> str:
+    """Repara texto UTF-8 que llegó decodificado como Latin-1 (ej. Ã± -> ñ)."""
+    text = value or ""
+
+    def fix(match: re.Match) -> str:
+        try:
+            return match.group(0).encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            return match.group(0)
+
+    return _MOJIBAKE_PAIR.sub(fix, text)
 
 
 def contains_han(value: str) -> bool:
@@ -13,7 +27,8 @@ def contains_han(value: str) -> bool:
 
 
 def normalize_text(value: str, max_length: int, emote_prefix: str) -> str:
-    text = unicodedata.normalize("NFKC", value or "")
+    text = repair_mojibake(value or "")
+    text = unicodedata.normalize("NFKC", text)
     text = _CHEER_COMMAND.sub("", text)
     text = _CHEER_LABEL.sub("", text)
     text = _URL.sub("", text)
@@ -30,4 +45,6 @@ def fallback_text(username: str, amount: int) -> str:
 
 
 def clean_username(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_\-\s]", "", value or "").strip()[:80] or "Anónimo"
+    text = repair_mojibake(value or "")
+    text = re.sub(r"[^A-Za-z0-9_\-\sÁÉÍÓÚÜÑáéíóúüñ]", "", text)
+    return text.strip()[:80] or "Anónimo"

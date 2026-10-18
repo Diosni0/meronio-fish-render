@@ -2,7 +2,11 @@ import re
 
 MULTI_SPEAKER_MODELS = {"s2-pro", "s2.1-pro", "s2.1-pro-free", "drama-3"}
 
-TAG_PATTERN = re.compile(r"@\s*(meroño|merono|supin|colombiana)\s*@", re.IGNORECASE)
+TAG_PATTERN = re.compile(
+    r"@\s*(meroño|merono|supin|colombiana)\s*@"
+    r"|@\s*(meroño|merono|supin|colombiana)(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
 WHITESPACE = re.compile(r"\s+")
 
 
@@ -33,7 +37,7 @@ def prepare_dialogue(text: str, voices: dict, model: str) -> tuple[str, list[str
         content = text[position:match.start()].strip()
         if content:
             raw_segments.append((current_name, content))
-        name = match.group(1).lower()
+        name = (match.group(1) or match.group(2)).lower()
         if name == "merono":
             name = "meroño"
         current_name = name

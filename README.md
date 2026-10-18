@@ -92,7 +92,8 @@ con marcas `@nombre@`:
 
 - Sin marcas se usa `FISH_VOICE_ID` (comportamiento actual).
 - `@meroño@`, `@supin@` y `@colombiana@` cambian el hablante hasta la siguiente
-  marca; no hay etiqueta de cierre y pueden ir en medio de la frase.
+  marca; no hay etiqueta de cierre y pueden ir en medio de la frase. También se
+  acepta sin la `@` final (`@supin hola`).
 - Con marcas se usa `reference_id` en array y las voces
   `FISH_VOICE_MERONO` (o `FISH_VOICE_ID` si está vacía), `FISH_VOICE_SUPIN` y
   `FISH_VOICE_COLOMBIANA`.
