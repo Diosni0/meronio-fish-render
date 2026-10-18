@@ -18,7 +18,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent !important; }
 body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
-#tts-root { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2147483000; pointer-events: none; background: transparent; }
+#tts-root { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; z-index: 2147483000; pointer-events: none; background: transparent; }
 .bubble {
   position: absolute;
   left: 34px;
@@ -144,7 +144,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
 <div class="status" id="status">Meroño TTS</div>
 <script>
 const CONFIG = Object.freeze({
-  version: "2.9.0-clips",
+  version: "2.9.1-bubble-fix",
   apiUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   widgetToken: "REEMPLAZA_CON_TU_WIDGET_TOKEN",
   channel: "alimentacionchino",
@@ -406,7 +406,7 @@ function parseEvent(raw) {
 }
 
 function showBubble(item, state) {
-  root.style.position = "fixed";
+  root.style.position = "absolute";
   root.style.inset = "0";
   usernameEl.textContent = item.username;
   messageEl.textContent = ellipsize(item.displayText || item.text, CONFIG.maxDisplayChars);
@@ -545,6 +545,7 @@ async function playAudio(blob, item) {
     URL.revokeObjectURL(url);
     return "busy";
   }
+  showBubble(item, "speaking");
   return new Promise(resolve => {
     const expectedMs = estimatedMs(item.text);
     let settled = false;
@@ -823,6 +824,13 @@ window.addEventListener("onSessionChange", event => {
   else if (value === false || value === "offline") setLiveState(false);
 });
 if (new URLSearchParams(location.search).has("test")) setTimeout(() => runTest(), 800);
+if (new URLSearchParams(location.search).has("bubble")) {
+  setTimeout(() => {
+    const item = { username: "Prueba", amount: 100, text: "Burbuja de prueba", displayText: "Burbuja de prueba" };
+    showBubble(item, "speaking");
+    setTimeout(hideBubble, 5000);
+  }, 800);
+}
 </script>
 </body>
 </html>
