@@ -1,4 +1,5 @@
 import hmac
+import inspect
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -15,7 +16,7 @@ from .config import Settings
 from .dialogue import strip_dialogue_tags
 from .services import SpeechError, SpeechService
 from .synth import MODELS, SpeechConfigStore
-from .text import clean_username, fallback_text, normalize_text
+from .text import clean_username, fallback_text, normalize_text, repair_mojibake
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,6 +53,10 @@ class PlaybackPayload(BaseModel):
     role: str = Field(default="", max_length=20)
     event_id: str = Field(default="", max_length=200)
     duration_ms: int = Field(default=0, ge=0, le=600000)
+
+
+class DebugTextPayload(BaseModel):
+    text: str = Field(default="", max_length=2000)
 
 
 @asynccontextmanager
@@ -230,6 +235,27 @@ def get_stats(request: Request) -> dict:
 @app.get("/api/events")
 def get_events(request: Request, limit: int = 20) -> list[dict]:
     return _service(request).events(limit)
+
+
+@app.post("/api/debug/normalize")
+def debug_normalize(
+    payload: DebugTextPayload,
+    x_widget_token: str | None = Header(default=None),
+) -> dict:
+    _authenticate(x_widget_token)
+    fixed = repair_mojibake(payload.text)
+    normalized = normalize_text(
+        payload.text,
+        settings.max_text_length,
+        settings.channel_emote_prefix,
+    )
+    return {
+        "input_codepoints": [hex(ord(ch)) for ch in payload.text],
+        "repair_codepoints": [hex(ord(ch)) for ch in fixed],
+        "normalized_codepoints": [hex(ord(ch)) for ch in normalized],
+        "normalize_source": inspect.getsource(normalize_text),
+        "repair_source": inspect.getsource(repair_mojibake),
+    }
 
 
 @app.post("/api/v1/playback/acquire")
