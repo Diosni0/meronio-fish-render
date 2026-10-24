@@ -45,6 +45,7 @@ Variables de configuración:
 | `TTS_SETTINGS_PATH` | `settings.json` | Archivo de ajustes del dashboard (efímero en Render free) |
 | `ALLOWED_CHANNEL` | `alimentacionchino` | Canal único permitido |
 | `MIN_BITS` | `10` | Bits mínimos para sintetizar |
+| `MAX_TEXT_LENGTH` | `800` | Caracteres máximos del mensaje (80–2000) |
 | `CORS_ORIGINS` | StreamElements | Orígenes permitidos del Custom Widget |
 | `AUDIO_CACHE_TTL` | `1800` | Segundos de caché de audio |
 | `AUDIO_CACHE_MAX` | `100` | Entradas máximas de caché |
