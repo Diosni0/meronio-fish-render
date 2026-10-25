@@ -57,7 +57,7 @@ class Settings:
             widget_token=os.getenv("WIDGET_TOKEN", "").strip(),
             allowed_channel=os.getenv("ALLOWED_CHANNEL", "alimentacionchino").strip().lower(),
             min_bits=_int_env("MIN_BITS", 10, 1, 100000),
-            max_text_length=_int_env("MAX_TEXT_LENGTH", 800, 80, 2000),
+            max_text_length=_int_env("MAX_TEXT_LENGTH", 600, 80, 2000),
             cache_ttl_seconds=_int_env("AUDIO_CACHE_TTL", 1800, 30, 86400),
             cache_max_entries=_int_env("AUDIO_CACHE_MAX", 100, 1, 5000),
             max_concurrency=_int_env("TTS_MAX_CONCURRENCY", 2, 1, 8),

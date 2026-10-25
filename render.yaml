@@ -27,8 +27,6 @@ services:
         value: alimentacionchino
       - key: MIN_BITS
         value: 10
-      - key: MAX_TEXT_LENGTH
-        value: 800
       - key: CORS_ORIGINS
         value: https://streamelements.com,https://www.streamelements.com
       - key: PUBLIC_BASE_URL
