@@ -55,6 +55,11 @@ def _text_hash(value: str) -> str:
     return hashlib.sha1(value.encode("utf-8")).hexdigest()[:10]
 
 
+def _log_text(value: str, limit: int = 600) -> str:
+    text = (value or "").replace("\r", " ").replace("\n", " ")
+    return text if len(text) <= limit else text[:limit] + "..."
+
+
 def _dedup_kind(key: str) -> str:
     parts = key.split(":", 2)
     return ":".join(parts[:2]) if len(parts) >= 2 else "unknown"
@@ -418,13 +423,17 @@ async def speech(
                 amount=payload.amount,
             )
             logger.info(
-                "speech 409 duplicate role=%s instance=%s event=%s conflict=%s chars=%s hash=%s %s",
+                "speech 409 duplicate role=%s instance=%s event=%s conflict=%s user=%r text=%r raw_chars=%d chars=%s hash=%s test=%s %s",
                 role,
                 _short_id(instance),
                 payload.event_id or "-",
                 _dedup_kind(conflict_key),
+                username,
+                _log_text(text),
+                len(payload.text),
                 len(text),
                 _text_hash(text),
+                payload.test,
                 _client_context(request),
             )
             raise SpeechError(409, "Evento duplicado")
@@ -439,11 +448,14 @@ async def speech(
         if error.status_code != 409:
             service.record_event("error", status=error.status_code, instance=instance, role=role)
             logger.warning(
-                "speech %s role=%s instance=%s event=%s chars=%s hash=%s amount=%s test=%s elapsed_ms=%d %s",
+                "speech %s role=%s instance=%s event=%s user=%r text=%r raw_chars=%d chars=%s hash=%s amount=%s test=%s elapsed_ms=%d %s",
                 error.status_code,
                 role,
                 _short_id(instance),
                 payload.event_id or "-",
+                username,
+                _log_text(text),
+                len(payload.text),
                 len(text),
                 _text_hash(text) if text else "-",
                 payload.amount,
@@ -457,10 +469,13 @@ async def speech(
             service.release_event(dedup_keys, instance)
         service.record_event("error", status=500, instance=instance, role=role)
         logger.exception(
-            "speech 500 role=%s instance=%s event=%s chars=%s elapsed_ms=%d %s",
+            "speech 500 role=%s instance=%s event=%s user=%r text=%r raw_chars=%d chars=%s elapsed_ms=%d %s",
             role,
             _short_id(instance),
             payload.event_id or "-",
+            username,
+            _log_text(text),
+            len(payload.text),
             len(text),
             int((time.monotonic() - started) * 1000),
             _client_context(request),
@@ -476,16 +491,20 @@ async def speech(
         cache=cache_status,
     )
     logger.info(
-        "speech 200 role=%s instance=%s event=%s cache=%s bytes=%s chars=%s hash=%s amount=%s clips=%s elapsed_ms=%d %s",
+        "speech 200 role=%s instance=%s event=%s cache=%s bytes=%s user=%r text=%r raw_chars=%d chars=%s hash=%s amount=%s clips=%s test=%s elapsed_ms=%d %s",
         role,
         _short_id(instance),
         payload.event_id or "-",
         cache_status,
         len(audio),
+        username,
+        _log_text(text),
+        len(payload.text),
         len(text),
         _text_hash(text),
         payload.amount,
         payload.supports_clips,
+        payload.test,
         int((time.monotonic() - started) * 1000),
         _client_context(request),
     )

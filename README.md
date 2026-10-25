@@ -139,8 +139,8 @@ Los logs de `lifecycle`, `speech` y `playback` incluyen:
 - `instance` y `role`, más `active_stream` con todas las instancias de directo.
 - `ua` (User-Agent) y `client` (JSON del widget: `role_src`, `obs`, `top_obs`,
   `iframe`, `vis`, `focus`, tamaño de ventana/pantalla y versión del widget).
-- `chars`, `hash` del texto (sin registrar el texto), `amount`, `cache`,
-  `elapsed_ms` y `bytes`.
+- `user`, `text` (normalizado y truncado a 600 caracteres), `raw_chars`,
+  `chars`, `hash`, `amount`, `cache`, `elapsed_ms` y `bytes`.
 - `conflict=id` o `conflict=content` cuando un evento se descarta por duplicado.
 - `playback grant/deny/release` con instancia, evento y titular del turno.
 - Aviso `multiple stream instances active` si hay más de una instancia `stream`.
