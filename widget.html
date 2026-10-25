@@ -144,7 +144,7 @@ body { font-family: Inter, "Segoe UI", Arial, sans-serif; }
 <div class="status" id="status">Meroño TTS</div>
 <script>
 const CONFIG = Object.freeze({
-  version: "2.9.1-bubble-fix",
+  version: "2.9.2-diagnostics",
   apiUrl: "https://REEMPLAZA_CON_TU_URL_DE_RENDER",
   widgetToken: "REEMPLAZA_CON_TU_WIDGET_TOKEN",
   channel: "alimentacionchino",
@@ -206,20 +206,41 @@ const instanceId = (() => {
     return value;
   } catch { return Math.random().toString(36).slice(2); }
 })();
-const role = (() => {
+const roleInfo = (() => {
   try {
     const explicit = (new URLSearchParams(location.search).get("role") || "").trim().toLowerCase();
-    if (explicit) return explicit.slice(0, 20);
-    let isObs = typeof window.obsstudio !== "undefined";
-    if (!isObs) {
-      try { isObs = typeof window.top.obsstudio !== "undefined"; } catch {}
-    }
-    if (isObs) return "stream";
+    if (explicit) return { role: explicit.slice(0, 20), source: "explicit" };
+    if (typeof window.obsstudio !== "undefined") return { role: "stream", source: "obs-api" };
+    try {
+      if (typeof window.top.obsstudio !== "undefined") return { role: "stream", source: "top-obs" };
+    } catch {}
     const ua = navigator.userAgent || "";
-    if (ua.includes("OBS/") || ua.includes("obs-browser")) return "stream";
-    return "preview";
-  } catch { return "preview"; }
+    if (ua.includes("OBS/") || ua.includes("obs-browser")) return { role: "stream", source: "obs-ua" };
+    return { role: "preview", source: "default" };
+  } catch { return { role: "preview", source: "error" }; }
 })();
+const role = roleInfo.role;
+
+function clientContext() {
+  let iframe = false;
+  let topObs = false;
+  try { iframe = window.top !== window; } catch { iframe = true; }
+  try { topObs = typeof window.top.obsstudio !== "undefined"; } catch {}
+  return JSON.stringify({
+    v: CONFIG.version,
+    role_src: roleInfo.source,
+    obs: typeof window.obsstudio !== "undefined",
+    top_obs: topObs,
+    iframe,
+    vis: document.visibilityState,
+    focus: document.hasFocus(),
+    w: window.innerWidth,
+    h: window.innerHeight,
+    screen: `${screen.width}x${screen.height}`,
+    dpr: window.devicePixelRatio,
+    editor: editorModeCache
+  });
+}
 const hanPattern = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 let liveState = false;
 let keepWarmTimer = null;
@@ -442,7 +463,13 @@ async function requestAudio(item) {
     try {
       const response = await fetch(`${CONFIG.apiUrl}/api/v1/speech`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Widget-Token": CONFIG.widgetToken, "X-Widget-Instance": instanceId },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Widget-Token": CONFIG.widgetToken,
+          "X-Widget-Instance": instanceId,
+          "X-Widget-Version": CONFIG.version,
+          "X-Widget-Context": clientContext()
+        },
         body: JSON.stringify({ text: item.text, username: item.username, amount: item.amount, event_id: item.eventId, channel: CONFIG.channel, role, instance_id: instanceId, supports_clips: true, test: Boolean(item.test) }),
         signal: controller.signal
       });
@@ -506,7 +533,13 @@ async function acquirePlayback(item, durationMs) {
     try {
       const response = await fetch(`${CONFIG.apiUrl}/api/v1/playback/acquire`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Widget-Token": CONFIG.widgetToken },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Widget-Token": CONFIG.widgetToken,
+          "X-Widget-Instance": instanceId,
+          "X-Widget-Version": CONFIG.version,
+          "X-Widget-Context": clientContext()
+        },
         body: JSON.stringify({ instance_id: instanceId, role, event_id: item.eventId, duration_ms: durationMs })
       });
       if (response.status === 404) return true;
@@ -523,7 +556,13 @@ async function acquirePlayback(item, durationMs) {
 function releasePlayback(item) {
   fetch(`${CONFIG.apiUrl}/api/v1/playback/release`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Widget-Token": CONFIG.widgetToken },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Widget-Token": CONFIG.widgetToken,
+      "X-Widget-Instance": instanceId,
+      "X-Widget-Version": CONFIG.version,
+      "X-Widget-Context": clientContext()
+    },
     body: JSON.stringify({ instance_id: instanceId, role, event_id: item.eventId })
   }).catch(() => {});
 }
@@ -737,7 +776,13 @@ function setLiveState(value) {
   liveState = Boolean(value);
   fetch(`${CONFIG.apiUrl}/api/v1/lifecycle`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Widget-Token": CONFIG.widgetToken },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Widget-Token": CONFIG.widgetToken,
+      "X-Widget-Instance": instanceId,
+      "X-Widget-Version": CONFIG.version,
+      "X-Widget-Context": clientContext()
+    },
     body: JSON.stringify({ live: liveState, role, instance_id: instanceId })
   }).catch(() => {});
   if (liveState && !keepWarmTimer) {
@@ -799,7 +844,7 @@ function runTest(text = "Este es un mensaje de prueba. Si me ves y me oyes, el b
 
 window.meronoTest = runTest;
 unlockAudio();
-isEditorPreview().then(editor => log(`Widget v${CONFIG.version} — rol=${role} instancia=${String(instanceId).slice(0, 8)} — ${editor ? "Modo editor (sin audio)" : "Modo directo"}`));
+isEditorPreview().then(editor => log(`Widget v${CONFIG.version} — rol=${role} (${roleInfo.source}) instancia=${String(instanceId).slice(0, 8)} — ${editor ? "Modo editor (sin audio)" : "Modo directo"} — ${clientContext()}`));
 window.addEventListener("onEventReceived", async event => {
   const editor = await isEditorPreview();
   if (!editor) markActivity();

@@ -45,6 +45,7 @@ Variables de configuración:
 | `TTS_SETTINGS_PATH` | `settings.json` | Archivo de ajustes del dashboard (efímero en Render free) |
 | `ALLOWED_CHANNEL` | `alimentacionchino` | Canal único permitido |
 | `MIN_BITS` | `10` | Bits mínimos para sintetizar |
+| `LOG_LEVEL` | `INFO` | Nivel de logs (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `CORS_ORIGINS` | StreamElements | Orígenes permitidos del Custom Widget |
 | `AUDIO_CACHE_TTL` | `1800` | Segundos de caché de audio |
 | `AUDIO_CACHE_MAX` | `100` | Entradas máximas de caché |
@@ -130,6 +131,22 @@ termine, así dos cheers seguidos nunca se solapan.
   hay varias instancias de directo conectadas: elimina la sobrante.
 - El backend antiguo de GCP está detenido y deshabilitado. Retira también su
   overlay de OBS/StreamElements para no dejar una fuente muerta.
+
+## Diagnóstico
+
+Los logs de `lifecycle`, `speech` y `playback` incluyen:
+
+- `instance` y `role`, más `active_stream` con todas las instancias de directo.
+- `ua` (User-Agent) y `client` (JSON del widget: `role_src`, `obs`, `top_obs`,
+  `iframe`, `vis`, `focus`, tamaño de ventana/pantalla y versión del widget).
+- `chars`, `hash` del texto (sin registrar el texto), `amount`, `cache`,
+  `elapsed_ms` y `bytes`.
+- `conflict=id` o `conflict=content` cuando un evento se descarta por duplicado.
+- `playback grant/deny/release` con instancia, evento y titular del turno.
+- Aviso `multiple stream instances active` si hay más de una instancia `stream`.
+
+Con `LOG_LEVEL=DEBUG` se añaden las decisiones de dedup, el estado de la cola de
+síntesis y cada reintento de playback. No se registra el token del overlay.
 
 ## Pegar el Custom Widget
 

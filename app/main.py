@@ -1,12 +1,16 @@
+import hashlib
 import hmac
 import logging
 import re
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
@@ -18,13 +22,13 @@ from .services import SpeechError, SpeechService
 from .synth import MODELS, SpeechConfigStore
 from .text import clean_username, fallback_text, normalize_text
 
+settings = Settings.from_env()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, settings.log_level, logging.INFO),
     format="%(asctime)s [%(name)s] %(message)s",
     stream=sys.stdout,
 )
 logger = logging.getLogger("merono-tts")
-settings = Settings.from_env()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DASHBOARD_PATH = BASE_DIR / "dashboard.html"
@@ -41,6 +45,39 @@ def _repair_text(value: str) -> str:
             return match.group(0)
 
     return _MOJIBAKE_PAIR.sub(fix, value or "")
+
+
+def _short_id(value: str, length: int = 12) -> str:
+    return (value or "unknown")[:length]
+
+
+def _text_hash(value: str) -> str:
+    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:10]
+
+
+def _dedup_kind(key: str) -> str:
+    parts = key.split(":", 2)
+    return ":".join(parts[:2]) if len(parts) >= 2 else "unknown"
+
+
+def _client_context(request: Request) -> str:
+    """Contexto del cliente para diagnosticar instancias duplicadas.
+
+    No se registra el Referer porque la URL del overlay de StreamElements
+    contiene el token del overlay. El contexto que envía el widget incluye
+    rol detectado, visibilidad, foco y si corre dentro de un iframe/OBS.
+    """
+    parts: list[str] = []
+    user_agent = request.headers.get("user-agent", "")
+    if user_agent:
+        parts.append(f"ua={user_agent[:200]!r}")
+    origin = request.headers.get("origin", "")
+    if origin:
+        parts.append(f"origin={origin!r}")
+    widget_context = request.headers.get("x-widget-context", "")
+    if widget_context:
+        parts.append(f"client={widget_context[:500]}")
+    return " ".join(parts)
 
 
 class SpeechPayload(BaseModel):
@@ -95,9 +132,32 @@ app.add_middleware(
     allow_origin_regex=r"https://([a-z0-9-]+\.)*streamelements\.com",
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "X-Widget-Token", "X-Widget-Instance", "X-Admin-Token"],
+    allow_headers=[
+        "Content-Type",
+        "X-Widget-Token",
+        "X-Widget-Instance",
+        "X-Widget-Context",
+        "X-Widget-Version",
+        "X-Admin-Token",
+    ],
 )
 app.mount("/images", StaticFiles(directory="images"), name="images")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    details = [
+        {"loc": error.get("loc"), "type": error.get("type"), "msg": error.get("msg")}
+        for error in exc.errors()
+    ]
+    logger.warning(
+        "validation 422 path=%s method=%s %s errors=%s",
+        request.url.path,
+        request.method,
+        _client_context(request),
+        details,
+    )
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors())})
 
 
 def _service(request: Request) -> SpeechService:
@@ -116,17 +176,27 @@ def _detect_role(request: Request, explicit: str = "") -> str:
     solo una instancia de cada rol reproduce cada evento.
     """
     if explicit:
-        return explicit.strip().lower()[:20]
+        role = explicit.strip().lower()[:20]
+        logger.debug("role detect source=explicit role=%s ua=%r", role, request.headers.get("user-agent", "")[:200])
+        return role
     user_agent = request.headers.get("user-agent", "")
     if "OBS/" in user_agent or "obs-browser" in user_agent:
+        logger.debug("role detect source=user-agent role=stream ua=%r", user_agent[:200])
         return "stream"
+    logger.debug("role detect source=fallback role=preview ua=%r", user_agent[:200])
     return "preview"
 
 
-def _authenticate(token: str | None) -> None:
+def _authenticate(token: str | None, request: Request | None = None) -> None:
     if not settings.widget_token:
         raise HTTPException(status_code=503, detail="WIDGET_TOKEN no configurado")
     if not token or not hmac.compare_digest(token.encode(), settings.widget_token.encode()):
+        logger.warning(
+            "auth failure kind=widget token_present=%s path=%s %s",
+            bool(token),
+            request.url.path if request else "-",
+            _client_context(request) if request else "",
+        )
         raise HTTPException(status_code=401, detail="Widget no autorizado")
 
 
@@ -134,11 +204,17 @@ def _admin_token() -> str:
     return settings.admin_token or settings.widget_token
 
 
-def _require_admin(token: str | None) -> None:
+def _require_admin(token: str | None, request: Request | None = None) -> None:
     expected = _admin_token()
     if not expected:
         raise HTTPException(status_code=503, detail="ADMIN_TOKEN no configurado")
     if not token or not hmac.compare_digest(token.encode(), expected.encode()):
+        logger.warning(
+            "auth failure kind=admin token_present=%s path=%s %s",
+            bool(token),
+            request.url.path if request else "-",
+            _client_context(request) if request else "",
+        )
         raise HTTPException(status_code=401, detail="No autorizado")
 
 
@@ -216,7 +292,7 @@ def update_settings(
     request: Request,
     x_admin_token: str | None = Header(default=None),
 ) -> dict:
-    _require_admin(x_admin_token)
+    _require_admin(x_admin_token, request)
     try:
         _config(request).update(body)
     except (ValueError, TypeError) as error:
@@ -230,7 +306,7 @@ def reset_settings(
     request: Request,
     x_admin_token: str | None = Header(default=None),
 ) -> dict:
-    _require_admin(x_admin_token)
+    _require_admin(x_admin_token, request)
     _config(request).reset()
     logger.info("Ajustes TTS restaurados")
     return _settings_payload(request)
@@ -252,11 +328,21 @@ def acquire_playback(
     request: Request,
     x_widget_token: str | None = Header(default=None),
 ) -> dict:
-    _authenticate(x_widget_token)
+    _authenticate(x_widget_token, request)
     role = _detect_role(request, payload.role)
     instance = (payload.instance_id or "unknown")[:80]
     granted, wait_ms = _service(request).acquire_playback(
         role, instance, payload.event_id, payload.duration_ms
+    )
+    logger.info(
+        "playback acquire granted=%s role=%s instance=%s event=%s duration_ms=%s wait_ms=%s %s",
+        granted,
+        role,
+        _short_id(instance),
+        payload.event_id or "-",
+        payload.duration_ms,
+        wait_ms,
+        _client_context(request),
     )
     return {
         "granted": granted,
@@ -271,10 +357,17 @@ def release_playback(
     request: Request,
     x_widget_token: str | None = Header(default=None),
 ) -> dict[str, str]:
-    _authenticate(x_widget_token)
+    _authenticate(x_widget_token, request)
     role = _detect_role(request, payload.role)
     instance = (payload.instance_id or "unknown")[:80]
     _service(request).release_playback(role, instance, payload.event_id)
+    logger.info(
+        "playback release role=%s instance=%s event=%s %s",
+        role,
+        _short_id(instance),
+        payload.event_id or "-",
+        _client_context(request),
+    )
     return {"status": "ok"}
 
 
@@ -285,13 +378,21 @@ async def speech(
     x_widget_token: str | None = Header(default=None),
     x_widget_instance: str = Header(default=""),
 ) -> Response:
-    _authenticate(x_widget_token)
+    _authenticate(x_widget_token, request)
     service = _service(request)
+    started = time.monotonic()
     instance = (payload.instance_id or x_widget_instance or "unknown")[:80]
     role = _detect_role(request, payload.role)
-    service.touch_instance(instance, role)
+    previous = service.touch_instance(instance, role)
+    if previous is not None and previous.get("role") != role:
+        logger.warning(
+            "instance role change instance=%s from=%s to=%s %s",
+            _short_id(instance), previous.get("role"), role, _client_context(request)
+        )
     event_reserved = False
     dedup_keys: list[str] = []
+    text = ""
+    username = ""
     try:
         service.check_rate_limit()
         service.check_channel(payload.channel)
@@ -306,7 +407,7 @@ async def speech(
         if payload.event_id.strip():
             dedup_keys.append(f"{role}:id:{payload.event_id.strip()}")
         dedup_keys.append(f"{role}:c:{username}:{payload.amount}:{text}")
-        event_reserved = service.reserve_event(dedup_keys, instance)
+        event_reserved, conflict_key = service.reserve_event_detail(dedup_keys, instance)
         if not event_reserved:
             service.record_event(
                 "duplicate",
@@ -317,8 +418,14 @@ async def speech(
                 amount=payload.amount,
             )
             logger.info(
-                "speech 409 duplicate role=%s instance=%s event=%s",
-                role, instance, payload.event_id or "-",
+                "speech 409 duplicate role=%s instance=%s event=%s conflict=%s chars=%s hash=%s %s",
+                role,
+                _short_id(instance),
+                payload.event_id or "-",
+                _dedup_kind(conflict_key),
+                len(text),
+                _text_hash(text),
+                _client_context(request),
             )
             raise SpeechError(409, "Evento duplicado")
 
@@ -331,16 +438,33 @@ async def speech(
             service.release_event(dedup_keys, instance)
         if error.status_code != 409:
             service.record_event("error", status=error.status_code, instance=instance, role=role)
-        logger.warning(
-            "speech %s role=%s instance=%s event=%s",
-            error.status_code, role, instance, payload.event_id or "-",
-        )
+            logger.warning(
+                "speech %s role=%s instance=%s event=%s chars=%s hash=%s amount=%s test=%s elapsed_ms=%d %s",
+                error.status_code,
+                role,
+                _short_id(instance),
+                payload.event_id or "-",
+                len(text),
+                _text_hash(text) if text else "-",
+                payload.amount,
+                payload.test,
+                int((time.monotonic() - started) * 1000),
+                _client_context(request),
+            )
         raise _payload_error(error) from error
     except Exception:
         if event_reserved and dedup_keys:
             service.release_event(dedup_keys, instance)
         service.record_event("error", status=500, instance=instance, role=role)
-        logger.exception("Unexpected synthesis error instance=%s", instance)
+        logger.exception(
+            "speech 500 role=%s instance=%s event=%s chars=%s elapsed_ms=%d %s",
+            role,
+            _short_id(instance),
+            payload.event_id or "-",
+            len(text),
+            int((time.monotonic() - started) * 1000),
+            _client_context(request),
+        )
         raise HTTPException(status_code=500, detail="Error interno de síntesis") from None
     service.record_event(
         "speech",
@@ -352,8 +476,18 @@ async def speech(
         cache=cache_status,
     )
     logger.info(
-        "speech 200 role=%s instance=%s event=%s cache=%s bytes=%s",
-        role, instance, payload.event_id or "-", cache_status, len(audio),
+        "speech 200 role=%s instance=%s event=%s cache=%s bytes=%s chars=%s hash=%s amount=%s clips=%s elapsed_ms=%d %s",
+        role,
+        _short_id(instance),
+        payload.event_id or "-",
+        cache_status,
+        len(audio),
+        len(text),
+        _text_hash(text),
+        payload.amount,
+        payload.supports_clips,
+        int((time.monotonic() - started) * 1000),
+        _client_context(request),
     )
     return Response(
         content=audio,
@@ -373,12 +507,29 @@ def lifecycle(
     request: Request,
     x_widget_token: str | None = Header(default=None),
 ) -> dict[str, str]:
-    _authenticate(x_widget_token)
+    _authenticate(x_widget_token, request)
     state = "live" if payload.live else "offline"
     instance = (payload.instance_id or "unknown")[:80]
     role = _detect_role(request, payload.role)
     service = _service(request)
-    service.touch_instance(instance, role, state)
+    previous = service.touch_instance(instance, role, state)
     service.record_event("lifecycle", state=state, instance=instance, role=role)
-    logger.info("Widget lifecycle=%s role=%s instance=%s", state, role, instance)
+    active_stream = service.active_instances("stream")
+    logger.info(
+        "Widget lifecycle=%s role=%s instance=%s previous_role=%s streams=%d previews=%d active_stream=%s %s",
+        state,
+        role,
+        _short_id(instance),
+        (previous or {}).get("role", "-"),
+        len(active_stream),
+        len(service.active_instances("preview")),
+        [_short_id(value, 8) for value in active_stream],
+        _client_context(request),
+    )
+    if state == "live" and role == "stream" and len(active_stream) > 1:
+        logger.warning(
+            "multiple stream instances active count=%d ids=%s: solo una reproduce y el resto puede perder eventos",
+            len(active_stream),
+            [_short_id(value) for value in active_stream],
+        )
     return {"status": state}

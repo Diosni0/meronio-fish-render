@@ -16,6 +16,11 @@ def _list_env(name: str, default: str) -> list[str]:
     return list(dict.fromkeys(configured + defaults))
 
 
+def _log_level() -> str:
+    value = os.getenv("LOG_LEVEL", "INFO").strip().upper()
+    return value if value in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"} else "INFO"
+
+
 @dataclass(frozen=True)
 class Settings:
     fish_api_key: str
@@ -38,6 +43,7 @@ class Settings:
     origins: tuple[str, ...]
     channel_emote_prefix: str
     public_base_url: str
+    log_level: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -66,4 +72,5 @@ class Settings:
             origins=tuple(origins),
             channel_emote_prefix=os.getenv("CHANNEL_EMOTE_PREFIX", "alimen1").strip(),
             public_base_url=os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/"),
+            log_level=_log_level(),
         )

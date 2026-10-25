@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import logging
 import time
 from collections import OrderedDict, deque
 from typing import Any
@@ -9,6 +10,8 @@ import httpx
 
 from .dialogue import parse_turns, prepare_dialogue
 from .synth import SpeechConfigStore, media_type_for
+
+logger = logging.getLogger("merono-tts")
 
 
 class SpeechError(Exception):
@@ -54,22 +57,41 @@ class SpeechService:
             raise SpeechError(403, "Canal no permitido")
 
     def reserve_event(self, keys: str | list[str], instance_id: str = "") -> bool:
+        reserved, _ = self.reserve_event_detail(keys, instance_id)
+        return reserved
+
+    def reserve_event_detail(self, keys: str | list[str], instance_id: str = "") -> tuple[bool, str]:
         if isinstance(keys, str):
             keys = [keys]
         keys = [key for key in keys if key]
         if not keys:
-            return False
+            return False, ""
         self._prune_events()
         now = time.monotonic()
-        if any(key in self._seen_events for key in keys):
+        matched = next((key for key in keys if key in self._seen_events), "")
+        if matched:
             for key in keys:
                 if key in self._seen_events:
                     self._seen_events.move_to_end(key)
-            return False
+            _, owner = self._seen_events[matched]
+            logger.debug(
+                "dedup conflict instance=%s owner=%s kind=%s keys=%d",
+                instance_id or "-",
+                owner or "-",
+                ":".join(matched.split(":", 2)[:2]) if ":" in matched else "opaque",
+                len(keys),
+            )
+            return False, matched
         for key in keys:
             self._seen_events[key] = (now, instance_id)
             self._seen_events.move_to_end(key)
-        return True
+        logger.debug(
+            "dedup reserve instance=%s keys=%d kinds=%s",
+            instance_id or "-",
+            len(keys),
+            [":".join(key.split(":", 2)[:2]) if ":" in key else "opaque" for key in keys],
+        )
+        return True, ""
 
     def release_event(self, keys: str | list[str], instance_id: str = "") -> None:
         if isinstance(keys, str):
@@ -81,45 +103,102 @@ class SpeechService:
             _, owner = existing
             if not instance_id or owner == instance_id:
                 self._seen_events.pop(key, None)
+                logger.debug("dedup release instance=%s owner=%s", instance_id or "-", owner or "-")
 
-    def touch_instance(self, instance_id: str, role: str, state: str = "") -> None:
+    def touch_instance(self, instance_id: str, role: str, state: str = "") -> dict | None:
         if not instance_id:
-            return
+            return None
         now = time.monotonic()
+        previous = self._instances.get(instance_id)
         self._instances[instance_id] = {
             "role": role or "unknown",
             "state": state,
             "seen": now,
         }
+        if previous is None:
+            logger.debug("instance register instance=%s role=%s state=%s", instance_id, role, state or "-")
         if len(self._instances) > 200:
             cutoff = now - 600
             for key in [key for key, value in self._instances.items() if value["seen"] < cutoff]:
                 self._instances.pop(key, None)
+                logger.debug("instance expire instance=%s role=%s", key, value["role"])
+        return previous
+
+    def active_instances(self, role: str | None = None, max_age_seconds: float = 600.0) -> list[str]:
+        cutoff = time.monotonic() - max_age_seconds
+        return [
+            instance_id
+            for instance_id, value in self._instances.items()
+            if value["seen"] >= cutoff and (role is None or value["role"] == role)
+        ]
+
+    def load(self) -> dict[str, int]:
+        return {
+            "pending": self._pending,
+            "inflight": len(self._inflight),
+            "cache": len(self._cache),
+            "seen_events": len(self._seen_events),
+        }
 
     def acquire_playback(self, role: str, instance_id: str, event_id: str, duration_ms: int) -> tuple[bool, int]:
         key = role or "stream"
         now = time.monotonic()
         lock = self._playback_locks.get(key)
         if lock and lock["expires"] > now and lock["owner"] != instance_id:
-            return False, int((lock["expires"] - now) * 1000) + 250
+            wait_ms = int((lock["expires"] - now) * 1000) + 250
+            logger.debug(
+                "playback deny role=%s instance=%s event=%s holder=%s holder_event=%s wait_ms=%d",
+                key,
+                instance_id,
+                event_id or "-",
+                lock["owner"],
+                lock["event_id"] or "-",
+                wait_ms,
+            )
+            return False, wait_ms
         duration = max(5.0, min((max(duration_ms, 0) / 1000.0) + 2.0, 180.0))
         self._playback_locks[key] = {
             "owner": instance_id,
             "event_id": event_id,
             "expires": now + duration,
         }
+        logger.debug(
+            "playback grant role=%s instance=%s event=%s duration_ms=%d lock_ms=%d",
+            key,
+            instance_id,
+            event_id or "-",
+            duration_ms,
+            int(duration * 1000),
+        )
         return True, int(duration * 1000)
 
     def release_playback(self, role: str, instance_id: str, event_id: str = "") -> None:
         key = role or "stream"
         lock = self._playback_locks.get(key)
         if lock is None:
+            logger.debug("playback release ignored role=%s instance=%s reason=no-lock", key, instance_id)
             return
         if lock["owner"] != instance_id:
+            logger.warning(
+                "playback release ignored role=%s instance=%s reason=holder-mismatch holder=%s holder_event=%s event=%s",
+                key,
+                instance_id,
+                lock["owner"],
+                lock["event_id"] or "-",
+                event_id or "-",
+            )
             return
         if event_id and lock["event_id"] and lock["event_id"] != event_id:
+            logger.warning(
+                "playback release ignored role=%s instance=%s reason=event-mismatch holder_event=%s event=%s",
+                key,
+                instance_id,
+                lock["event_id"],
+                event_id,
+            )
             return
         self._playback_locks.pop(key, None)
+        logger.debug("playback release role=%s instance=%s event=%s", key, instance_id, event_id or "-")
 
     def _prune_events(self) -> None:
         cutoff = time.monotonic() - 300
@@ -205,21 +284,38 @@ class SpeechService:
         cached = self._cache_get(key)
         if cached is not None:
             self.record_event("cache_hit", text=text)
+            logger.debug("synth cache=hit chars=%d clips=%s", len(text), bool(turns))
             return cached[0], "HIT", cached[1]
 
         existing = self._inflight.get(key)
         if existing is not None:
             self.record_event("cache_hit", text=text, coalesced=True)
+            logger.debug("synth coalesced chars=%d clips=%s", len(text), bool(turns))
             audio, media_type = await asyncio.shield(existing)
             return audio, "HIT", media_type
 
         if self._pending >= self.settings.max_pending:
+            logger.warning(
+                "synth queue full pending=%d max_pending=%d chars=%d",
+                self._pending,
+                self.settings.max_pending,
+                len(text),
+            )
             raise SpeechError(429, "La cola de síntesis está llena")
 
         loop = asyncio.get_running_loop()
         future: asyncio.Future[tuple[bytes, str]] = loop.create_future()
         self._inflight[key] = future
         self._pending += 1
+        started = time.monotonic()
+        logger.debug(
+            "synth start chars=%d clips=%d pending=%d model=%s format=%s",
+            len(text),
+            len(turns) if turns else 0,
+            self._pending,
+            config["model"],
+            config["format"],
+        )
         try:
             async with self._semaphore:
                 if turns:
@@ -230,6 +326,13 @@ class SpeechService:
             self._cache_set(key, audio, media_type)
             if not future.done():
                 future.set_result((audio, media_type))
+            logger.debug(
+                "synth done bytes=%d media_type=%s elapsed_ms=%d pending=%d",
+                len(audio),
+                media_type,
+                int((time.monotonic() - started) * 1000),
+                self._pending,
+            )
             return audio, "MISS", media_type
         except Exception as exc:
             if not future.done():
@@ -297,10 +400,12 @@ class SpeechService:
                 )
             except httpx.TimeoutException as exc:
                 last_error = "Fish Audio tardó demasiado"
+                logger.warning("fish timeout attempt=%d chars=%d", attempt + 1, len(text))
                 if attempt == 2:
                     raise SpeechError(504, last_error) from exc
             except httpx.HTTPError as exc:
                 last_error = "No se pudo contactar con Fish Audio"
+                logger.warning("fish transport error attempt=%d error=%s", attempt + 1, type(exc).__name__)
                 if attempt == 2:
                     raise SpeechError(502, last_error) from exc
             else:
@@ -308,8 +413,21 @@ class SpeechService:
                     return response.content
                 if response.status_code in {408, 429} or response.status_code >= 500:
                     last_error = f"Fish Audio respondió {response.status_code}"
+                    logger.warning(
+                        "fish retryable status=%s attempt=%d chars=%d",
+                        response.status_code,
+                        attempt + 1,
+                        len(text),
+                    )
                     if attempt < 2:
                         await asyncio.sleep(0.5 * (2**attempt))
                         continue
+                logger.warning(
+                    "fish error status=%s attempt=%d chars=%d body=%r",
+                    response.status_code,
+                    attempt + 1,
+                    len(text),
+                    response.text[:200],
+                )
                 raise SpeechError(502, last_error)
         raise SpeechError(502, last_error)

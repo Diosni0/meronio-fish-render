@@ -45,6 +45,15 @@ def test_role_namespaced_keys_are_independent() -> None:
     assert service.reserve_event(["stream:id:1", "stream:c:user:10:hola"], "instance-c") is False
 
 
+def test_reserve_event_detail_reports_conflict_kind() -> None:
+    service = make_service()
+    keys = ["stream:id:1", "stream:c:user:10:hola"]
+    assert service.reserve_event_detail(keys, "instance-a") == (True, "")
+    reserved, conflict = service.reserve_event_detail(keys, "instance-b")
+    assert reserved is False
+    assert conflict == "stream:id:1"
+
+
 def test_release_event_removes_all_keys() -> None:
     service = make_service()
     keys = ["stream:id:2", "stream:c:user:10:hola"]
@@ -61,6 +70,16 @@ def test_touch_instance_reports_active_roles() -> None:
     stats = service.stats()
     assert stats["instances"]["stream"] == 2
     assert stats["instances"]["preview"] == 1
+    assert len(service.active_instances("stream")) == 2
+    assert service.active_instances("preview") == ["instance-c"]
+
+
+def test_touch_instance_returns_previous_state() -> None:
+    service = make_service()
+    assert service.touch_instance("instance-a", "preview") is None
+    previous = service.touch_instance("instance-a", "stream")
+    assert previous is not None
+    assert previous["role"] == "preview"
 
 
 def test_playback_lock_serializes_stream_instances() -> None:
