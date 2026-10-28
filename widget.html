@@ -594,6 +594,9 @@ async function playAudio(blob, item) {
       settled = true;
       clearTimeout(safetyTimer);
       try { audio.pause(); } catch {}
+      audio.onended = null;
+      audio.onerror = null;
+      audio.onplaying = null;
       try { audio.removeAttribute("src"); audio.load(); } catch {}
       if (currentAudio === audio) currentAudio = null;
       URL.revokeObjectURL(url);
@@ -615,7 +618,7 @@ async function playAudio(blob, item) {
       try {
         const played = audio.play();
         if (played && typeof played.then === "function") {
-          played.then(() => showBubble(item, "speaking"))
+          played.then(() => { if (!settled) showBubble(item, "speaking"); })
             .catch(error => { log(`Audio bloqueado: ${error.message}`); finish("blocked"); });
         } else {
           showBubble(item, "speaking");
@@ -668,6 +671,9 @@ function playClip(url, durationMs, item) {
       settled = true;
       clearTimeout(safetyTimer);
       try { audio.pause(); } catch {}
+      audio.onended = null;
+      audio.onerror = null;
+      audio.onplaying = null;
       try { audio.removeAttribute("src"); audio.load(); } catch {}
       if (currentAudio === audio) currentAudio = null;
       resolve(reason || "");
@@ -675,6 +681,7 @@ function playClip(url, durationMs, item) {
     currentAudio = audio;
     audio.onended = () => finish("");
     audio.onerror = () => finish("error");
+    audio.onplaying = () => showBubble(item, "speaking");
     const resume = audioContext ? audioContext.resume() : Promise.resolve();
     resume.catch(() => {}).finally(() => {
       try {
