@@ -1,9 +1,11 @@
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import re
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -74,6 +76,13 @@ def _client_context(request: Request) -> str:
     rol detectado, visibilidad, foco y si corre dentro de un iframe/OBS.
     """
     parts: list[str] = []
+    ip = _client_ip(request)
+    if ip:
+        parts.append(f"ip={ip!r}")
+        if _trusted_widget_request(request) and _public_ip(ip):
+            isp = _isp_for(ip)
+            if isp:
+                parts.append(f"isp={isp!r}")
     user_agent = request.headers.get("user-agent", "")
     if user_agent:
         parts.append(f"ua={user_agent[:200]!r}")
@@ -84,6 +93,80 @@ def _client_context(request: Request) -> str:
     if widget_context:
         parts.append(f"client={widget_context[:500]}")
     return " ".join(parts)
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        candidate = forwarded.split(",", 1)[0].strip()
+        if candidate:
+            return candidate
+    return request.client.host if request.client else ""
+
+
+def _public_ip(value: str) -> bool:
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+    )
+
+
+def _trusted_widget_request(request: Request) -> bool:
+    token = request.headers.get("x-widget-token", "")
+    expected = getattr(settings, "widget_token", "") or ""
+    if not token or not expected:
+        return False
+    try:
+        return hmac.compare_digest(token, expected)
+    except (TypeError, ValueError):
+        return False
+
+
+_ISP_CACHE: dict[str, tuple[float, str]] = {}
+_ISP_PENDING: set[str] = set()
+_ISP_LOCK = threading.Lock()
+_ISP_TTL_SECONDS = 21600.0
+_ISP_FAIL_TTL_SECONDS = 300.0
+
+
+def _store_isp(ip: str, isp: str) -> None:
+    with _ISP_LOCK:
+        _ISP_CACHE[ip] = (time.monotonic(), isp)
+        _ISP_PENDING.discard(ip)
+
+
+def _fetch_isp(ip: str) -> None:
+    isp = ""
+    try:
+        response = httpx.get(f"https://ipinfo.io/{ip}/json", timeout=3.0)
+        data = response.json()
+        isp = str(data.get("org") or data.get("isp") or "").strip()
+    except Exception:
+        isp = ""
+    _store_isp(ip, isp)
+
+
+def _isp_for(ip: str) -> str:
+    now = time.monotonic()
+    with _ISP_LOCK:
+        entry = _ISP_CACHE.get(ip)
+        if entry is not None:
+            ttl = _ISP_TTL_SECONDS if entry[1] else _ISP_FAIL_TTL_SECONDS
+            if now - entry[0] < ttl:
+                return entry[1]
+        if ip in _ISP_PENDING:
+            return entry[1] if entry is not None else ""
+        _ISP_PENDING.add(ip)
+    threading.Thread(target=_fetch_isp, args=(ip,), daemon=True).start()
+    return entry[1] if entry is not None else ""
 
 
 def _client_context_data(request: Request) -> dict:
