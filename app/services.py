@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from .dialogue import parse_turns, prepare_dialogue
+from .logfmt import log_line
 from .synth import SpeechConfigStore, media_type_for
 
 logger = logging.getLogger("merono-tts")
@@ -180,21 +181,29 @@ class SpeechService:
             return
         if lock["owner"] != instance_id:
             logger.warning(
-                "playback release ignored role=%s instance=%s reason=holder-mismatch holder=%s holder_event=%s event=%s",
-                key,
-                instance_id,
-                lock["owner"],
-                lock["event_id"] or "-",
-                event_id or "-",
+                log_line(
+                    "PLAYBACK",
+                    "release-ignored",
+                    reason="holder-mismatch",
+                    role=key,
+                    inst=instance_id,
+                    holder=lock["owner"],
+                    holder_ev=lock["event_id"] or "-",
+                    ev=event_id or "-",
+                )
             )
             return
         if event_id and lock["event_id"] and lock["event_id"] != event_id:
             logger.warning(
-                "playback release ignored role=%s instance=%s reason=event-mismatch holder_event=%s event=%s",
-                key,
-                instance_id,
-                lock["event_id"],
-                event_id,
+                log_line(
+                    "PLAYBACK",
+                    "release-ignored",
+                    reason="event-mismatch",
+                    role=key,
+                    inst=instance_id,
+                    holder_ev=lock["event_id"],
+                    ev=event_id,
+                )
             )
             return
         self._playback_locks.pop(key, None)
@@ -296,10 +305,13 @@ class SpeechService:
 
         if self._pending >= self.settings.max_pending:
             logger.warning(
-                "synth queue full pending=%d max_pending=%d chars=%d",
-                self._pending,
-                self.settings.max_pending,
-                len(text),
+                log_line(
+                    "SYNTH",
+                    "queue-full",
+                    pending=self._pending,
+                    max=self.settings.max_pending,
+                    chars=len(text),
+                )
             )
             raise SpeechError(429, "La cola de síntesis está llena")
 
@@ -400,12 +412,21 @@ class SpeechService:
                 )
             except httpx.TimeoutException as exc:
                 last_error = "Fish Audio tardó demasiado"
-                logger.warning("fish timeout attempt=%d chars=%d", attempt + 1, len(text))
+                logger.warning(
+                    log_line("FISH", "timeout", attempt=attempt + 1, chars=len(text))
+                )
                 if attempt == 2:
                     raise SpeechError(504, last_error) from exc
             except httpx.HTTPError as exc:
                 last_error = "No se pudo contactar con Fish Audio"
-                logger.warning("fish transport error attempt=%d error=%s", attempt + 1, type(exc).__name__)
+                logger.warning(
+                    log_line(
+                        "FISH",
+                        "transport-error",
+                        attempt=attempt + 1,
+                        error=type(exc).__name__,
+                    )
+                )
                 if attempt == 2:
                     raise SpeechError(502, last_error) from exc
             else:
@@ -414,20 +435,26 @@ class SpeechService:
                 if response.status_code in {408, 429} or response.status_code >= 500:
                     last_error = f"Fish Audio respondió {response.status_code}"
                     logger.warning(
-                        "fish retryable status=%s attempt=%d chars=%d",
-                        response.status_code,
-                        attempt + 1,
-                        len(text),
+                        log_line(
+                            "FISH",
+                            "retryable",
+                            status=response.status_code,
+                            attempt=attempt + 1,
+                            chars=len(text),
+                        )
                     )
                     if attempt < 2:
                         await asyncio.sleep(0.5 * (2**attempt))
                         continue
                 logger.warning(
-                    "fish error status=%s attempt=%d chars=%d body=%r",
-                    response.status_code,
-                    attempt + 1,
-                    len(text),
-                    response.text[:200],
+                    log_line(
+                        "FISH",
+                        "error",
+                        status=response.status_code,
+                        attempt=attempt + 1,
+                        chars=len(text),
+                        body=response.text[:200],
+                    )
                 )
                 raise SpeechError(502, last_error)
         raise SpeechError(502, last_error)
