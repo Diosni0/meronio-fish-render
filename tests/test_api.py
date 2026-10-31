@@ -124,6 +124,22 @@ def test_hidden_stream_instance_is_ignored(tmp_path, monkeypatch) -> None:
         assert stats["counts"]["hidden_instance"] == 1
 
 
+def test_hidden_stream_lifecycle_is_not_registered(tmp_path, monkeypatch) -> None:
+    headers = {
+        "X-Widget-Token": "widget",
+        "X-Widget-Context": json.dumps({"vis": "hidden"}),
+    }
+    with make_client(tmp_path, monkeypatch) as client:
+        response = client.post(
+            "/api/v1/lifecycle",
+            json={"live": True, "role": "stream", "instance_id": "instance-hidden"},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["ignored"] == "hidden"
+        assert client.get("/api/stats").json()["instances"]["stream"] == 0
+
+
 def test_content_dedup_without_event_id(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(SpeechService, "synthesize", fake_synthesize)
     headers = {"X-Widget-Token": "widget"}

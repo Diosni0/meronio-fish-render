@@ -557,6 +557,14 @@ def lifecycle(
     instance = (payload.instance_id or "unknown")[:80]
     role = _detect_role(request, payload.role)
     service = _service(request)
+    if role == "stream" and _client_context_data(request).get("vis") == "hidden":
+        logger.debug(
+            "lifecycle ignored hidden role=%s instance=%s state=%s",
+            role,
+            _short_id(instance),
+            state,
+        )
+        return {"status": state, "speaker": "false", "ignored": "hidden"}
     previous = service.touch_instance(instance, role, state)
     service.record_event("lifecycle", state=state, instance=instance, role=role)
     active_stream = service.active_instances("stream")
