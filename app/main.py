@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import json
 import logging
 import re
 import sys
@@ -83,6 +84,14 @@ def _client_context(request: Request) -> str:
     if widget_context:
         parts.append(f"client={widget_context[:500]}")
     return " ".join(parts)
+
+
+def _client_context_data(request: Request) -> dict:
+    try:
+        data = json.loads(request.headers.get("x-widget-context", "") or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 class SpeechPayload(BaseModel):
@@ -388,6 +397,23 @@ async def speech(
     started = time.monotonic()
     instance = (payload.instance_id or x_widget_instance or "unknown")[:80]
     role = _detect_role(request, payload.role)
+    if role == "stream" and _client_context_data(request).get("vis") == "hidden":
+        service.record_event(
+            "hidden_instance",
+            role=role,
+            instance=instance,
+            event=payload.event_id,
+        )
+        logger.info(
+            "speech 409 hidden-instance role=%s instance=%s event=%s user=%r text=%r %s",
+            role,
+            _short_id(instance),
+            payload.event_id or "-",
+            payload.username,
+            _log_text(payload.text),
+            _client_context(request),
+        )
+        raise HTTPException(status_code=409, detail="NOT_VISIBLE: Instancia oculta")
     previous = service.touch_instance(instance, role)
     if previous is not None and previous.get("role") != role:
         logger.warning(

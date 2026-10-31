@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 
 from fastapi.testclient import TestClient
@@ -92,6 +93,35 @@ def test_second_stream_instance_gets_409(tmp_path, monkeypatch) -> None:
         assert stats["instances"]["stream"] == 2
         assert stats["instances"]["preview"] == 1
         assert stats["counts"]["duplicate"] == 1
+
+
+def test_hidden_stream_instance_is_ignored(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(SpeechService, "synthesize", fake_synthesize)
+    hidden_headers = {
+        "X-Widget-Token": "widget",
+        "X-Widget-Context": json.dumps({"vis": "hidden"}),
+    }
+    visible_headers = {
+        "X-Widget-Token": "widget",
+        "X-Widget-Context": json.dumps({"vis": "visible"}),
+    }
+    with make_client(tmp_path, monkeypatch) as client:
+        hidden = client.post(
+            "/api/v1/speech",
+            json=speech_payload(instance_id="instance-hidden"),
+            headers=hidden_headers,
+        )
+        visible = client.post(
+            "/api/v1/speech",
+            json=speech_payload(instance_id="instance-visible"),
+            headers=visible_headers,
+        )
+        assert hidden.status_code == 409
+        assert "NOT_VISIBLE" in hidden.json()["detail"]
+        assert visible.status_code == 200
+        stats = client.get("/api/stats").json()
+        assert stats["instances"]["stream"] == 1
+        assert stats["counts"]["hidden_instance"] == 1
 
 
 def test_content_dedup_without_event_id(tmp_path, monkeypatch) -> None:
